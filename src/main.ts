@@ -16,8 +16,10 @@ export default class PersonalGlass extends Plugin {
   native = new NativeMaterialController();
   nativeStatus = 'Native material is off.';
   private surfaces = new Map<Document, SurfaceState>();
+  private active = false;
 
   async onload() {
+    this.active = true;
     this.settings = normalizeSettings(await this.loadData());
     for (const template of TEMPLATES) this.addCommand({
       id: template.id, name: template.name,
@@ -50,6 +52,7 @@ export default class PersonalGlass extends Plugin {
     this.applyAll();
   }
   applyAll() {
+    if (!this.active) return;
     if (this.settings.material === 'none') this.native.dispose();
     this.applyDocument(document);
     this.app.workspace.iterateAllLeaves(leaf => {
@@ -59,6 +62,7 @@ export default class PersonalGlass extends Plugin {
     for (const doc of this.surfaces.keys()) if (doc !== document) this.applyDocument(doc);
   }
   applyDocument(doc: Document) {
+    if (!this.active) return;
     const body = doc.body;
     if (!body) return;
     if (!this.surfaces.has(doc)) this.surfaces.set(doc, {
@@ -93,6 +97,7 @@ export default class PersonalGlass extends Plugin {
     else state.body.style.removeProperty('--personal-content-width');
   }
   onunload() {
+    this.active = false;
     this.native.dispose();
     for (const state of this.surfaces.values()) this.restore(state);
     this.surfaces.clear();

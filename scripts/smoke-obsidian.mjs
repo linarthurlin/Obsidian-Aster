@@ -36,6 +36,7 @@ try {
   assert.equal(actual.toLowerCase(), expected.toLowerCase(), 'Refusing a non-demo vault');
   const result = await evaluate(`(async () => {
     if (!app.plugins.isEnabled()) await app.plugins.setEnable(true);
+    if (app.plugins.plugins['personal-glass']) await app.plugins.disablePlugin('personal-glass');
     if (!app.plugins.plugins['personal-glass']) await app.plugins.loadPlugin('personal-glass');
     const p = app.plugins.plugins['personal-glass'];
     if (!p) throw new Error('Companion plugin did not load');
