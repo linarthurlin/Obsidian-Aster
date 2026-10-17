@@ -1,0 +1,29 @@
+{
+  "name": "obsidian-personal-glass",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first glass surfaces and Markdown tools for Obsidian",
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "validate": "node scripts/validate.mjs",
+    "check": "npm run typecheck && npm run build && npm test && npm run validate",
+    "package": "node scripts/package.mjs",
+    "install:vault": "node scripts/install.mjs",
+    "version:sync": "node scripts/version.mjs",
+    "preview": "node scripts/preview.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "esbuild": "0.28.2",
+    "fflate": "0.8.3",
+    "jsdom": "26.1.0",
+    "obsidian": "1.14.4",
+    "postcss": "8.5.30",
+    "typescript": "5.8.3",
+    "vitest": "5.0.5"
+  }
+}

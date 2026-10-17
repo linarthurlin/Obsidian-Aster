@@ -1,0 +1,13 @@
+node_modules/
+dist/
+release/
+coverage/
+output/
+.local/
+.env
+.env.*
+*.log
+IMPLEMENTATION-PLAN.zh-TW.md
+demo-vault/.obsidian/
+!demo-vault/.obsidian/.gitkeep
+
