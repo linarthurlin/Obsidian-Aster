@@ -10,6 +10,12 @@ Actual Obsidian screenshots using only the synthetic demo vault (Portable mode):
 | --- | --- |
 | ![Light theme](docs/screenshots/light.png) | ![Dark theme](docs/screenshots/dark.png) |
 
+Integrated Navigator and Reading View with optional Crisp Craft, using synthetic notes:
+
+![Navigator and rounded content](docs/screenshots/navigator-dark.png)
+
+[Light Navigator](docs/screenshots/navigator-light.png) · [Live Preview](docs/screenshots/live-preview-dark.png) · [Offline SVG examples](docs/screenshots/svg-light.png)
+
 ## What works
 
 - Three paired light/dark palettes: Warm Neutral, Mineral and Rose Stone.
@@ -19,6 +25,8 @@ Actual Obsidian screenshots using only the synthetic demo vault (Portable mode):
 - 14 commands for headings, lists, tasks, quotes, Callouts, dividers, code, math and tables.
 - Experimental Windows Mica/Acrylic through Electron's native window API, explicitly opt-in and off by default.
 - Shared token adapter for the optional [Crisp Craft](https://github.com/letschips/crisp-craft) Reading View plugin.
+- Original read-only Navigator with folders, recent files, pins, alias/tag search, adaptive panes and opt-in local previews. Optional Notebook Navigator theme adapter.
+- Offline SVG authoring skill with paired light/dark examples, and a separate proposal/review/rollback CLI for agent-supplied note updates.
 
 This does not implement Apple's Liquid Glass renderer or replace Obsidian's editor. Native materials require Windows 11 22H2+, a compatible Electron runtime and the hidden/Obsidian window frame. The OS can use a solid fallback. Portable mode uses an in-app gradient and does not expose other desktop windows.
 
@@ -34,7 +42,11 @@ Download assets from [Releases](https://github.com/linarthurlin/obsidian-persona
 
 The root `manifest.json` and root release assets describe the companion plugin, so BRAT can use `linarthurlin/obsidian-personal-glass` when prerelease installation is supported. Install the theme ZIP separately. This project has not been submitted to the Obsidian community directory.
 
-Plugin controls require the Personal Glass theme for visual effects. Commands work independently. The plugin does not change the selected theme, scan notes, call AI services or send telemetry. Do not run another native-material plugin at the same time.
+Appearance controls require the Personal Glass theme. Commands and Navigator work independently. Navigator reads file metadata; optional previews read displayed local Markdown. The plugin does not change the selected theme, call AI services, send telemetry or automatically modify notes. Do not run another native-material plugin at the same time.
+
+Open **Personal Glass: Open read-only Navigator** from the command palette or its ribbon icon. See [Navigator usage](docs/NAVIGATOR.zh-TW.md).
+
+The `personal-glass-tools-<version>.zip` release contains the standalone [offline knowledge CLI](workflow/README.md) and [SVG skill](skills/personal-glass-svg/SKILL.md). Extract outside a vault and use Node.js 22.12+; no npm dependencies are needed for these tools. The SVG XML checker additionally uses Python 3. Plans and transaction receipts contain note text and must remain private. No AI model or automatic ingestion is included.
 
 ## Develop
 
@@ -77,6 +89,6 @@ git commit -m "chore: release next version"
 
 ## Next milestones
 
-See [ROADMAP](docs/ROADMAP.md) for Windows material testing, editor polish, SVG authoring and the separate Agent knowledge workflow. No AI ingestion or automatic vault organization ships in 0.1.0.
+See [ROADMAP](docs/ROADMAP.md) for completed work and remaining real-desktop, daily-use, accessibility and Agent-ingestion validation. No automatic vault organization ships in 0.2.0.
 
 See [testing](docs/TESTING.md), [installation and rollback](docs/INSTALLATION.zh-TW.md) and [design references](docs/REFERENCES.md).

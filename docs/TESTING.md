@@ -21,6 +21,18 @@ Native API success means the API accepted the request, not proof that Windows re
 
 ## Development smoke result
 
-Tested on Obsidian 1.13.7 / Electron 43.3.0 with a separate profile and synthetic demo vault: 15 commands registered, multiline Chinese Callout insertion and undo passed, three palette tokens changed correctly, and disable/unload removed plugin attributes and inline width. The Acrylic API accepted the request; desktop transparency, multi-monitor behavior and popout-native materials remain unverified.
+0.2.0 tested on Obsidian application 1.14.4 (desktop shell user-agent 1.13.7) / Electron 43.3.0 on Windows, using a separate profile and synthetic demo vault. All 26 unit/integration tests pass locally; no personal notes are used as test fixtures.
+
+- 17 commands registered; multiline Chinese Callout insertion, undo and disable/unload cleanup passed.
+- Navigator alias + hierarchical tag search, focus without opening, pins and opt-in previews passed. Pure tests cover scope boundaries, natural ordering and renamed references.
+- Notebook Navigator 3.4.3, Crisp Craft 0.1.5, Tables 1.5.0, Advanced Canvas 6.5.0 and Ninja Cursor 0.0.14 loaded alongside Personal Glass. Reading View, Live Preview and a two-node Canvas rendered; six fixture note hashes stayed unchanged. This is coexistence smoke coverage, not exhaustive editing or daily-use certification.
+- SVG light/dark examples passed XML/offline checks and actual rendered inspection. Intrinsic dimensions prevent collapsed embeds; conservative line wrapping keeps labels within cards.
+- All 24 palette/mode/material combinations accepted their expected API requests. A real popout used a separate document, received appearance attributes and accepted Acrylic. Two emulated viewport sizes had no body overflow.
+- Emulated reduced motion, reduced transparency and forced colors applied the expected CSS fallbacks. A specificity regression in reduced transparency was fixed.
+- Offline proposal/apply/rollback tests cover exact evidence, review digests, stale sources/targets, multi-note preflight, subsequent human edits, duplicate targets, history reuse, path traversal and junction boundaries.
+
+Native API acceptance is **not** proof of desktop blur. Focus, physical resizing, wallpaper differences, OS transparency settings, DPI/multi-monitor behavior, screen readers and long-term editing remain manual checks. No personal-vault knowledge updates were performed.
 
 `node scripts/setup-demo.mjs` prepares only the repository's demo. `scripts/smoke-obsidian.mjs` expects a separately launched development instance on localhost port 9237, checks the exact vault path before any operation and refuses other vaults. It is not run by CI and should never be pointed at a daily vault.
+
+`scripts/setup-integrations.mjs` accepts optional locally obtained plugin release assets under ignored `.local/third-party/`; `--installed-from` copies only named plugin code files, never personal `data.json`. Third-party binaries are neither committed nor redistributed. Run `scripts/smoke-integrations.mjs` and `scripts/smoke-materials.mjs` sequentially, with the isolated demo window visible so Obsidian's paint-dependent renderer can run. The integration test closes other synthetic note/Canvas tabs for repeatable captures. Save results under ignored `output/obsidian` and inspect the screenshots.

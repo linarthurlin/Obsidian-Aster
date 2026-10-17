@@ -1,6 +1,6 @@
 {
   "name": "obsidian-personal-glass",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Local-first glass surfaces and Markdown tools for Obsidian",
@@ -14,7 +14,9 @@
     "package": "node scripts/package.mjs",
     "install:vault": "node scripts/install.mjs",
     "version:sync": "node scripts/version.mjs",
-    "preview": "node scripts/preview.mjs"
+    "preview": "node scripts/preview.mjs",
+    "knowledge": "node workflow/cli.mjs",
+    "svg:examples": "node scripts/generate-svg-examples.mjs"
   },
   "devDependencies": {
     "@types/node": "22.20.5",

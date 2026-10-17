@@ -6,7 +6,7 @@ await mkdir(vault, { recursive: true });
 await install(vault);
 await writeFile(resolve(vault, '.obsidian/appearance.json'), JSON.stringify({ cssTheme: 'Personal Glass', theme: 'moonstone', baseFontSize: 18 }));
 await writeFile(resolve(vault, '.obsidian/community-plugins.json'), JSON.stringify(['personal-glass']));
-await writeFile(resolve(vault, '.obsidian/core-plugins.json'), JSON.stringify({ 'file-explorer': true, 'global-search': true, 'command-palette': true, 'slash-command': true, outline: true, properties: true, 'editor-status': true }));
+await writeFile(resolve(vault, '.obsidian/core-plugins.json'), JSON.stringify({ 'file-explorer': true, 'global-search': true, 'command-palette': true, 'slash-command': true, canvas: true, outline: true, properties: true, 'editor-status': true }));
 const profile = resolve('.local/obsidian-profile');
 await mkdir(profile, { recursive: true });
 await writeFile(resolve(profile, 'obsidian.json'), JSON.stringify({ vaults: { 'a1b2c3d4e5f60123': { path: vault, ts: Date.now(), open: true } } }));

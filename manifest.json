@@ -1,7 +1,7 @@
 {
   "id": "personal-glass",
   "name": "Personal Glass",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "minAppVersion": "1.6.0",
   "description": "Glass appearance controls and portable Markdown insertion commands. Optional Windows native materials.",
   "author": "linarthurlin",

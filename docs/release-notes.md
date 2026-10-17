@@ -1,12 +1,13 @@
-First development prerelease of Personal Glass.
+Personal Glass 0.2.0 development prerelease.
 
-- Standalone theme with warm, mineral and rose palettes in light and dark modes.
-- Focus, Glass and Portable surfaces; rounded Callouts, images and interface panels.
-- Companion plugin with 14 Markdown insertion commands, appearance controls and experimental opt-in Windows Mica/Acrylic.
-- Native material requests fall back to CSS; they do not guarantee OS transparency on every runtime.
-- Theme and plugin ZIPs, manual/BRAT plugin assets and SHA-256 checksums.
+- Integrates an original read-only Navigator: adaptive folder/list panes, aliases and #tags, recent files, pins, natural sorting, keyboard navigation and optional local previews.
+- Adds independent Notebook Navigator theme tokens and an optional open command.
+- Aligns common Live Preview components with Reading View tokens and checks Crisp Craft/table/canvas/cursor coexistence in a synthetic vault.
+- Ships a reusable offline SVG authoring skill, three light/dark examples, intrinsic dimensions and conservative label wrapping.
+- Ships a separate offline knowledge proposal/review CLI with source excerpts, diffs, digest checks, stale-file preflight, journaled updates and rollback protection for later human edits. No model, automatic ingestion or background organization.
+- Fixes reduced-transparency CSS being overridden by surface selection and keeps main-window material status independent of popouts.
+- Includes theme, plugin and offline-tools ZIPs, manual/BRAT plugin assets and SHA-256 checksums.
 
-No AI ingestion, indexing or automatic note organization is implemented in this release.
-Installations do not activate plugins or modify existing vault configuration. Enable the theme and plugin manually.
+Installations copy only the project's five theme/plugin distribution files and preserve notes, activation lists, appearance settings and plugin data. Reload the plugin manually; the Navigator is available from its ribbon icon and command palette.
 
-Windows native materials remain experimental. Do not combine multiple native-material plugins.
+Native material API acceptance is not proof of OS blur. Real desktop focus/wallpaper/DPI/multi-monitor behavior and long-term plugin editing remain manual checks. The offline CLI has been exercised only on synthetic fixtures; no personal-vault content was reorganized.

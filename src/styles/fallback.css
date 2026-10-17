@@ -3,7 +3,7 @@
 }
 body[data-personal-motion='reduced'] { --personal-duration: 0ms; }
 @media (prefers-reduced-transparency: reduce) {
-  body { --personal-panel-alpha: 100%; --personal-sidebar-alpha: 100%; }
+  body { --personal-panel-alpha: 100% !important; --personal-sidebar-alpha: 100% !important; }
   .app-container { background: var(--personal-base) !important; }
   .menu, .suggestion-container { backdrop-filter: none !important; background: var(--personal-panel) !important; }
 }

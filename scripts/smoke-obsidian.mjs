@@ -41,7 +41,7 @@ try {
     const p = app.plugins.plugins['personal-glass'];
     if (!p) throw new Error('Companion plugin did not load');
     const ids = Object.keys(app.commands.commands).filter(id => id.startsWith('personal-glass:'));
-    if (ids.length !== 15) throw new Error('Expected 14 insertion commands plus surface command');
+    if (ids.length !== 17) throw new Error('Expected 14 insertion commands plus surface and navigator commands');
     document.querySelector('.modal-close-button')?.click();
     app.vault.setConfig('showInlineTitle', false);
     app.vault.setConfig('propertiesInDocument', 'hidden');
@@ -79,9 +79,9 @@ try {
   await mkdir('output/obsidian', { recursive: true });
   for (const mode of ['light', 'dark']) {
     await evaluate(`document.body.classList.toggle('theme-dark', ${mode === 'dark'}); document.body.classList.toggle('theme-light', ${mode === 'light'});`);
-    await evaluate('Promise.all(Array.from(document.images).map(image => image.decode().catch(() => {})))');
-    // Wait for the browser's next painted frame, not an arbitrary long delay.
-    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    await evaluate('Promise.all(Array.from(document.images).filter(image => !/^https?:/.test(image.currentSrc || image.src)).map(image => image.decode().catch(() => {})))');
+    // Force layout; screenshot capture paints even when the isolated window is hidden.
+    await evaluate('document.body.getBoundingClientRect().toJSON()');
     assert.equal(await evaluate("document.querySelectorAll('.modal-container').length"), 0, 'A modal obscures the screenshot');
     const shot = await send('Page.captureScreenshot', { format: 'png' });
     await writeFile(`output/obsidian/${mode}.png`, Buffer.from(shot.data, 'base64'));

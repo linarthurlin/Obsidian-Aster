@@ -9,10 +9,15 @@ export interface GlassSettings {
   roundedImages: boolean;
   reduceMotion: boolean;
   contentWidth: number;
+  navigatorLayout: 'auto' | 'single' | 'dual';
+  navigatorPreviews: boolean;
+  pinnedPaths: string[];
+  recentPaths: string[];
 }
 export const DEFAULT_SETTINGS: GlassSettings = {
   palette: 'warm', surface: 'portable', material: 'none',
   roundedImages: true, reduceMotion: false, contentWidth: 820,
+  navigatorLayout: 'auto', navigatorPreviews: false, pinnedPaths: [], recentPaths: [],
 };
 export function normalizeSettings(value: unknown): GlassSettings {
   const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -26,5 +31,14 @@ export function normalizeSettings(value: unknown): GlassSettings {
     reduceMotion: typeof raw.reduceMotion === 'boolean' ? raw.reduceMotion : false,
     contentWidth: typeof raw.contentWidth === 'number' && Number.isFinite(raw.contentWidth)
       ? Math.round(Math.min(1100, Math.max(640, raw.contentWidth))) : 820,
+    navigatorLayout: choice(['auto', 'single', 'dual'] as const, raw.navigatorLayout, 'auto'),
+    navigatorPreviews: raw.navigatorPreviews === true,
+    pinnedPaths: sanitizePaths(raw.pinnedPaths, 200),
+    recentPaths: sanitizePaths(raw.recentPaths, 40),
   };
+}
+function sanitizePaths(value: unknown, limit: number): string[] {
+  return Array.isArray(value) ? [...new Set(value.filter((path): path is string => typeof path === 'string'
+    && path.length > 0 && path.length < 1024 && !path.startsWith('/') && !path.includes('\\')
+    && !path.split('/').some(part => part === '..' || part.startsWith('.'))))].slice(0, limit) : [];
 }
