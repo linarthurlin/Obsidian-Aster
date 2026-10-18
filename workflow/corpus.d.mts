@@ -1,4 +1,5 @@
 export interface Context { schema: number; query: string; target: { path: string; hash: string; text: string }; sources: Array<{path:string;hash:string;excerpt:string;startLine:number;score:number}>; }
+export const LIMITS: { files:number; bytes:number; targetChars:number; excerptChars:number; sources:number };
 export interface Suggestion { status: 'proposal'|'no_change'; reason: string; after: string; sources: Array<{path:string;excerpt:string}>; }
 export interface Plan { schema:number; id:string; createdAt:string; operations:Array<{path:string;before:string;after:string;beforeHash:string;afterHash:string;reason:string;sources:Array<{path:string;hash:string;excerpt:string;locator:string}>}>; }
 export interface Reviewed { plan:Plan; review:{digest:string;changes:Array<{path:string;reason:string;diff:string;sources:Array<{path:string;excerpt:string;locator:string}>}>}; }

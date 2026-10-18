@@ -35,6 +35,10 @@
 .pga-chat .pga-chat-project-editor, .pga-chat .pga-chat-project-context { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--background-modifier-border); border-radius: var(--pga-chat-radius); background: var(--pga-chat-subtle); }
 .pga-chat .pga-chat-project-editor textarea { min-height: 6em; resize: vertical; }
 .pga-chat .pga-chat-project-context pre { max-height: 16em; overflow: auto; white-space: pre-wrap; }
+.pga-chat .pga-chat-context-preview { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--background-modifier-border); border-radius: var(--pga-chat-radius); background: var(--pga-chat-subtle); }
+.pga-chat .pga-chat-context-preview p { margin: 0; color: var(--pga-chat-muted); font-size: var(--font-smaller); }
+.pga-chat .pga-chat-context-preview pre { max-height: 18em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pga-chat .pga-chat-context-actions, .pga-chat .pga-chat-composer-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .pga-chat .pga-chat-skill-section { padding: 8px 10px; border: 1px solid var(--background-modifier-border); border-radius: var(--pga-chat-radius); background: var(--pga-chat-subtle); }
 .pga-chat .pga-chat-skill-section > summary { cursor: pointer; font-weight: 600; }
 .pga-chat .pga-chat-skill-section select { width: 100%; margin-block: 8px; }
@@ -68,7 +72,7 @@
 .pga-chat .pga-chat-message-body > :first-child { margin-top: 0; }
 .pga-chat .pga-chat-message-body > :last-child { margin-bottom: 0; }
 .pga-chat .pga-chat-message-body pre { max-width: 100%; overflow: auto; }
-.pga-chat .pga-chat-composer { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: end; }
+.pga-chat .pga-chat-composer { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-items: end; }
 .pga-chat .pga-chat-composer textarea { width: 100%; min-height: 72px; resize: vertical; }
 .pga-chat .pga-chat-slash-menu:not([hidden]) {
   position: absolute;

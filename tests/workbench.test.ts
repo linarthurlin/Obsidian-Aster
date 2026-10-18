@@ -20,10 +20,12 @@ it('requires explicit scope loading, context preview and consent; changing query
   proto.createDiv=function(options:any){return this.createEl('div',options)};proto.createSpan=function(options:any){return this.createEl('span',options)};
   const app={vault:{adapter:{getBasePath:()=>home}},workspace:{detachLeavesOfType:()=>{}}};
   class Plugin {app=app;async loadData(){return {corpusFolder:'Selected',executable:process.execPath}}registerView(id:string,f:any){factories.set(id,f)}addCommand(){}addSettingTab(){}}
+  class FuzzySuggestModal {}
+  class TFile {}
   class ItemView {app=app;contentEl=doc.createElement('div');constructor(){doc.querySelector('main')!.appendChild(this.contentEl)}registerDomEvent(el:any,event:string,fn:any){el.addEventListener(event,fn)}}
   const module={exports:{}};
   runInNewContext(await readFile('dist/plugin/main.js','utf8'),{module,exports:module.exports,process,Buffer,AbortController,setTimeout,clearTimeout,
-    require:(name:string)=>name==='obsidian'?{Plugin,ItemView,PluginSettingTab:class{}}:name==='node:child_process'?{spawn:()=>{spawned++;throw new Error('NETWORK_NOT_ALLOWED')}}:require(name)});
+    require:(name:string)=>name==='obsidian'?{Plugin,ItemView,PluginSettingTab:class{},FuzzySuggestModal,TFile}:name==='node:child_process'?{spawn:()=>{spawned++;throw new Error('NETWORK_NOT_ALLOWED')}}:require(name)});
   const Agent=(module.exports as any).default,plugin=new Agent();await plugin.onload();const view=factories.get('knowledge-agent-workbench')({});await view.onOpen();
   const button=(text:string)=>Array.from(doc.querySelectorAll('button')).find(b=>b.textContent!.includes(text))!;
   const invoke=async(el:any)=>{await el.onclick?.(new dom.window.Event('click'))};

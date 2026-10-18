@@ -6,7 +6,7 @@ Chat 使用本機 Codex CLI 的 app-server，Aster 目前只接受已驗證的 `
 
 每個 Aster session 對應一個 Codex 持久 thread。Aster 將 Codex thread ID 存在 plugin session metadata，重新開啟時以 `thread/resume` 恢復同一對話；Codex 也會在自己的 session store 保存對話。Aster 另外把聊天文字以 JSON 保存在 Windows `%USERPROFILE%\.aster\chats\<session-id>.json`（其他平台為 `~/.aster/chats/`），不寫入 Vault，也不放在 plugin data。Clear chats 會刪除 Aster 本機 transcript 與 session link；Codex session 會留在 Codex，可在 Codex 端管理。這些純文字檔是私人資料。
 
-一般 Chat 只傳送使用者輸入與該 session 對話，不附加目前筆記或 Vault 範圍，也不提供 Obsidian 檔案工具。Codex 的 shell、plugins、apps、browser、computer、multi-agent、memories 和 web search 都停用；MCP 清空，project instruction 載入上限設為零，thread 使用暫存工作目錄、read-only sandbox，turn 的 network access 關閉。任何未預期的 Codex 工具 item 或 server-initiated tool／approval request 都會被拒絕並中斷該 turn。這些限制降低能力，但不宣稱是完整 OS 隔離。
+一般 Chat 只傳送使用者輸入與該 session 對話，不會自動附加目前筆記或 Vault 範圍，也不提供 Obsidian 檔案工具。若設定了 Aster Corpus 資料夾，可用「Add note context」在該資料夾的可見 Markdown 路徑清單中搜尋；清單只讀路徑中繼資料，選取後才讀單一筆記。Aster 顯示完整快照與來源路徑，使用者明確按「Add context to draft」後，全文才進入可編輯 composer，仍須自行檢查並按 Send。預覽、加入草稿或捨棄預覽都不會呼叫模型。Codex 的 shell、plugins、apps、browser、computer、multi-agent、memories 和 web search 都停用；MCP 清空，project instruction 載入上限設為零，thread 使用暫存工作目錄、read-only sandbox，turn 的 network access 關閉。任何未預期的 Codex 工具 item 或 server-initiated tool／approval request 都會被拒絕並中斷該 turn。這些限制降低能力，但不宣稱是完整 OS 隔離。
 
 自訂 Skills 以 Agent Skills 相容的 `SKILL.md` 存在 Windows `%USERPROFILE%\.aster\skills\<name>\SKILL.md`（其他平台為 `~/.aster/skills/`），最多 40 個。從 slash 選單選用後，Skill 指示會展開在 composer 中，使用者可先檢查、編輯再送出；展開後的內容會作為普通 user message 保存在對話記錄。Aster 只讀 `SKILL.md` 的文字，不載入相對參考檔、不執行 scripts，也不把 `allowed-tools` 當成授權。刪除 Skill 只刪 `SKILL.md`；若資料夾另有使用者資源則保留。這些 Skill 檔與 Vault 分開，不會被 Clear chats 刪除。
 
@@ -18,4 +18,4 @@ Context meter 只使用 Codex 回報的 `last.totalTokens`（目前有效 contex
 
 每個 session 最多 80 則訊息、單則最多 40,000 字元、單份紀錄最多 120 KB，最多 24 個 session。超出限制時顯示錯誤，不自動丟棄或縮減對話內容。
 
-仍未完成：工具活動、受控 Obsidian context/tools、Knowledge Studio、Research Desk、Vault Curator、跨重啟 transaction recovery、真實 Obsidian Windows runtime 驗證，以及 slash recipe 自訂。Projects、Skills 和 Quick Ask 的合成／DOM 測試不代表真實 Obsidian runtime 已驗證。完整進度以 [roadmap](ROADMAP.md) 為準。
+仍未完成：工具活動、經核准的 Obsidian 操作工具、Knowledge Studio、Research Desk、Vault Curator、跨重啟 transaction recovery、真實 Obsidian Windows runtime 驗證，以及 slash recipe 自訂。Projects、Skills、Quick Ask、Corpus note picker 和 Clear race 的合成／DOM 測試不代表真實 Obsidian runtime 已驗證。完整進度以 [roadmap](ROADMAP.md) 為準。

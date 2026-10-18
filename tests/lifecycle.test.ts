@@ -14,6 +14,8 @@ it('registers Chat and Knowledge Studio without scanning a vault or starting a m
     registerView(...args: any[]) { views.push(args); }
     addCommand(command: any) { commands.push(command); }
   }
+  class FuzzySuggestModal {}
+  class TFile {}
   const module = { exports: {} };
   runInNewContext(await readFile('dist/plugin/main.js', 'utf8'), {
     module, exports: module.exports,
@@ -24,7 +26,7 @@ it('registers Chat and Knowledge Studio without scanning a vault or starting a m
         if (name === 'node:child_process') return { ...actual, spawn: (...args: any[]) => { spawned++; return actual.spawn(...args); } };
         return actual;
       }
-      return { Plugin, ItemView: class {}, PluginSettingTab: class { constructor() {} }, MarkdownView: class {}, Notice: class {}, MarkdownRenderer: { renderMarkdown: async () => {} } };
+      return { Plugin, ItemView: class {}, PluginSettingTab: class { constructor() {} }, MarkdownView: class {}, FuzzySuggestModal, TFile, Notice: class {}, MarkdownRenderer: { renderMarkdown: async () => {} } };
     },
   });
   const Agent = (module.exports as any).default, plugin = new Agent();

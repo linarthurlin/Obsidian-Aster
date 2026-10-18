@@ -3,7 +3,7 @@ import { PassThrough, Writable } from 'node:stream';
 import { it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { createRequire } from 'node:module';
-import { mkdtemp, readFile, rmdir, unlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { runInNewContext } from 'node:vm';
@@ -73,7 +73,13 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
   const testHome = await mkdtemp(join(tmpdir(), 'aster-chat-view-test-'));
   const dom = new JSDOM('<main></main>'), doc = dom.window.document;
   const factories = new Map<string, any>(), commands = new Map<string, any>(), calls: string[] = [], fake = fakeCodex();
-  let activeMarkdownView: any = null, currentChatView: any = null;
+  let activeMarkdownView: any = null, currentChatView: any = null, activePlugin: any = null, latestNotePicker: any = null;
+  const vaultReads: string[] = [];
+  const syntheticVault = join(testHome, 'SyntheticVault');
+  await mkdir(join(syntheticVault, 'ResearchScope'), { recursive: true });
+  await mkdir(join(syntheticVault, 'Elsewhere'), { recursive: true });
+  await writeFile(join(syntheticVault, 'ResearchScope', 'Scoped.md'), '# Scoped synthetic note\n\nOnly this explicitly selected fixture may enter the draft.');
+  await writeFile(join(syntheticVault, 'Elsewhere', 'Unlisted.md'), 'This note must never be listed or read.');
   let view: any, plugin: any, chatId = '', historyPath = '';
   let blockedRenameTarget = '';
   let signalRenameStarted!: () => void, releaseBlockedRename!: () => void;
@@ -95,6 +101,16 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
   };
   proto.createDiv = function(options: any = {}) { return this.createEl('div', options); };
   class MarkdownView {}
+  class TFile { constructor(public path: string) {} }
+  class FuzzySuggestModal {
+    items: string[] = [];
+    opened = false;
+    constructor(_app: any) { latestNotePicker = this; }
+    setPlaceholder(_placeholder: string) {}
+    setInstructions(_instructions: any[]) {}
+    getItems() { return this.items; }
+    open() { this.opened = true; }
+  }
   class Plugin {
     app = { workspace: {
       detachLeavesOfType() {},
@@ -112,7 +128,7 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
   class ItemView {
     app: any;
     contentEl = doc.createElement('div');
-    constructor() { this.app = { workspace: {} }; doc.querySelector('main')!.appendChild(this.contentEl); }
+    constructor() { this.app = activePlugin?.app ?? { workspace: {} }; doc.querySelector('main')!.appendChild(this.contentEl); }
   }
   class PluginSettingTab { constructor() {} }
   const module = { exports: {} };
@@ -121,7 +137,7 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
       module, exports: module.exports, process, Buffer, AbortController, setTimeout, clearTimeout,
       prompt: () => 'Project review', confirm: () => true,
       require: (name: string) => {
-        if (name === 'obsidian') return { Plugin, ItemView, PluginSettingTab, MarkdownView, Notice: class { constructor(_message: string) {} }, MarkdownRenderer: {
+        if (name === 'obsidian') return { Plugin, ItemView, PluginSettingTab, MarkdownView, FuzzySuggestModal, TFile, Notice: class { constructor(_message: string) {} }, MarkdownRenderer: {
           renderMarkdown: async (markdown: string, body: HTMLElement) => { body.textContent = markdown; },
         } };
         if (name === 'node:child_process') return { spawn: fake.spawn };
@@ -140,8 +156,14 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
         return require(name);
       },
     });
-    const Agent = (module.exports as any).default; plugin = new Agent();
+    const Agent = (module.exports as any).default; plugin = new Agent(); activePlugin = plugin;
     await plugin.onload();
+    plugin.settings.corpusFolder = 'ResearchScope';
+    plugin.app.vault = {
+      adapter: { getBasePath: () => syntheticVault },
+      getAbstractFileByPath: (path: string) => path === 'ResearchScope/Scoped.md' ? new TFile(path) : null,
+      cachedRead: async (file: TFile) => { vaultReads.push(file.path); return readFile(join(syntheticVault, file.path), 'utf8'); },
+    };
     view = factories.get('aster-chat')({}); currentChatView = view;
     await view.onOpen();
     expect(fake.children).toHaveLength(0);
@@ -273,12 +295,32 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     const providerCountBeforeAttach = fake.children.length;
     await commands.get('attach-active-note').callback();
     const attachedDraft = doc.querySelector('[aria-label="Message Aster"]') as HTMLTextAreaElement;
-    expect(attachedDraft.value).toContain('Active note context: Synthetic/Active.md');
+    expect(attachedDraft.value).toContain('Note context: Synthetic/Active.md');
     expect(attachedDraft.value).toContain('A reversible test-only note body with no personal Vault data.');
     expect(doc.querySelector('.pga-chat-status')?.textContent).toContain('has not sent or changed the note');
     const draftBeforeOversize = attachedDraft.value;
     await expect(currentChatView.attachNoteToDraft('x'.repeat(24_001), 'Synthetic/Large.md')).rejects.toThrow('24,000 characters');
     expect(attachedDraft.value).toBe(draftBeforeOversize);
+    expect(fake.children).toHaveLength(providerCountBeforeAttach);
+
+    latestNotePicker = null;
+    (doc.querySelector('[aria-label="Choose a note in the configured Corpus to preview as context"]') as HTMLButtonElement).onclick?.(new dom.window.Event('click'));
+    const pickerDeadline = Date.now() + 3000;
+    while (!latestNotePicker?.opened && Date.now() < pickerDeadline) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(latestNotePicker?.getItems()).toEqual(['Scoped.md']);
+    expect(vaultReads).toEqual([]);
+    latestNotePicker.onChooseItem('Scoped.md');
+    const previewDeadline = Date.now() + 3000;
+    while (!doc.querySelector('.pga-chat-context-preview') && Date.now() < previewDeadline) await new Promise(resolve => setTimeout(resolve, 5));
+    const contextPreview = doc.querySelector('.pga-chat-context-preview') as HTMLElement;
+    expect(contextPreview?.textContent).toContain('Only this explicitly selected fixture may enter the draft.');
+    expect(vaultReads).toEqual(['ResearchScope/Scoped.md']);
+    expect(fake.children).toHaveLength(providerCountBeforeAttach);
+    const scopedDraft = doc.querySelector('[aria-label="Message Aster"]') as HTMLTextAreaElement;
+    await (Array.from(contextPreview.querySelectorAll('button')).find(button => button.textContent === 'Add context to draft') as HTMLButtonElement).onclick?.(new dom.window.Event('click'));
+    expect(doc.querySelector('.pga-chat-context-preview')).toBeNull();
+    expect(scopedDraft.value).toContain('Note context: ResearchScope/Scoped.md');
+    expect(scopedDraft.value).toContain('Only this explicitly selected fixture may enter the draft.');
     expect(fake.children).toHaveLength(providerCountBeforeAttach);
 
     const addProject = Array.from(doc.querySelectorAll('button')).find(button => button.textContent === '＋ Project') as HTMLButtonElement;
@@ -316,6 +358,11 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     await rmdir(join(testHome, '.aster', 'skills', 'meeting-review')).catch(() => {});
     await rmdir(join(testHome, '.aster', 'skills')).catch(() => {});
     await rmdir(join(testHome, '.aster')).catch(() => {});
+    await unlink(join(syntheticVault, 'ResearchScope', 'Scoped.md')).catch(() => {});
+    await unlink(join(syntheticVault, 'Elsewhere', 'Unlisted.md')).catch(() => {});
+    await rmdir(join(syntheticVault, 'ResearchScope')).catch(() => {});
+    await rmdir(join(syntheticVault, 'Elsewhere')).catch(() => {});
+    await rmdir(syntheticVault).catch(() => {});
     await rmdir(testHome).catch(() => {});
   }
 });

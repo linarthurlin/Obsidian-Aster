@@ -1,10 +1,26 @@
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 const MAX_MESSAGES = 80, MAX_MESSAGE_LENGTH = 40000, MAX_BYTES = 120000;
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,100}$/;
+const targetTails = new Map();
+const deletedTargets = new Set();
 export const defaultChatStoreRoot = () => join(homedir(), '.aster', 'chats');
+function targetKey(path) { return resolve(path); }
+async function withTargetLock(path, action) {
+  const key = targetKey(path);
+  const previous = targetTails.get(key) || Promise.resolve();
+  let release;
+  const current = new Promise(resolve => { release = resolve; });
+  targetTails.set(key, current);
+  await previous;
+  try { return await action(key); }
+  finally {
+    release();
+    if (targetTails.get(key) === current) targetTails.delete(key);
+  }
+}
 async function directory(path, create) {
   try { const stat = await lstat(path); if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('Aster Chat store path is not a plain local directory.'); return true; }
   catch (error) { if (error?.code !== 'ENOENT') throw error; if (!create) return false; await mkdir(path, { mode: 0o700 }); return true; }
@@ -28,6 +44,7 @@ async function inspectTarget(path) {
 }
 export async function loadChatHistory(root, id) {
   const path = targetPath(root, id);
+  if (deletedTargets.has(targetKey(path))) return [];
   if (!await directory(dirname(root), false) || !await directory(root, false)) return [];
   const stat = await inspectTarget(path); if (!stat) return [];
   if (stat.size > MAX_BYTES) throw new Error('Aster Chat history file exceeds its storage limit.');
@@ -36,14 +53,23 @@ export async function loadChatHistory(root, id) {
 }
 export async function saveChatHistory(root, id, messages) {
   const path = targetPath(root, id), clean = validateHistory(messages);
-  await ensureStore(root); await inspectTarget(path);
-  const temporary = join(root, '.aster-chat-' + randomUUID() + '.tmp');
-  try { await writeFile(temporary, JSON.stringify(clean), { flag: 'wx', mode: 0o600 }); await rename(temporary, path); }
-  finally { await unlink(temporary).catch(() => {}); }
+  return withTargetLock(path, async key => {
+    if (deletedTargets.has(key)) throw new Error('This Chat transcript was cleared and cannot be recreated.');
+    await ensureStore(root); await inspectTarget(path);
+    const temporary = join(root, '.aster-chat-' + randomUUID() + '.tmp');
+    try { await writeFile(temporary, JSON.stringify(clean), { flag: 'wx', mode: 0o600 }); await rename(temporary, path); }
+    finally { await unlink(temporary).catch(() => {}); }
+  });
 }
 export async function deleteChatHistory(root, id) {
   const path = targetPath(root, id);
-  if (!await directory(dirname(root), false) || !await directory(root, false)) return false;
-  const stat = await inspectTarget(path); if (!stat) return false;
-  await unlink(path); return true;
+  return withTargetLock(path, async key => {
+    if (deletedTargets.has(key)) return false;
+    if (!await directory(dirname(root), false) || !await directory(root, false)) { deletedTargets.add(key); return false; }
+    const stat = await inspectTarget(path);
+    if (!stat) { deletedTargets.add(key); return false; }
+    await unlink(path);
+    deletedTargets.add(key);
+    return true;
+  });
 }
