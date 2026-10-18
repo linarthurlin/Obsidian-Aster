@@ -2,7 +2,7 @@ import { it, expect } from 'vitest';
 import { mkdtemp, mkdir, writeFile, readFile, symlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { prepareContext, contextDigest, assertContextFresh, suggestionPlan, validateSuggestion, resolveScope, listNotes } from '../workflow/corpus.mjs';
+import { prepareContext, searchCorpus, contextDigest, assertContextFresh, suggestionPlan, validateSuggestion, resolveScope, listNotes } from '../workflow/corpus.mjs';
 import { normalizeSettings } from '../src/settings';
 async function fixture() {
   const home=await mkdtemp(join(tmpdir(),'ka-corpus-')),root=join(home,'Selected');await mkdir(root);
@@ -28,6 +28,19 @@ it('captures exact bounded evidence and rejects changed source/target context',a
   expect(await readFile(join(f.root,'Note.md'),'utf8')).toBe(context.target.text);
   await writeFile(join(f.root,'Source.md'),'Changed source');await expect(assertContextFresh(f.root,context)).rejects.toThrow('Source changed');
   await writeFile(join(f.root,'Note.md'),'Human edit');await expect(suggestionPlan(f.root,context,supported)).rejects.toThrow('Target changed');
+});
+it('searches only visible Corpus notes and returns bounded excerpts for navigation',async()=>{
+  const f=await fixture();
+  await writeFile(join(f.root,'Second.md'),'# Bayesian source\n\nA second synthetic matching result.\n');
+  const result=await searchCorpus(f.root,'Bayesian',1);
+  expect(result.scannedFiles).toBe(3);
+  expect(result.results).toHaveLength(1);
+  expect(result.truncated).toBe(true);
+  expect(result.results[0].excerpt.length).toBeLessThanOrEqual(420);
+  expect(result.results[0].path).not.toContain('Secret');
+  expect(result.results[0].path).not.toContain('Outside');
+  await expect(searchCorpus(f.root,'')).rejects.toThrow('search query');
+  await expect(searchCorpus(f.root,'Bayesian',51)).rejects.toThrow('between 1 and 50');
 });
 it('rejects fabricated or out-of-scope model citations and accepts a literal no-change',async()=>{
   const f=await fixture(),context=await prepareContext(f.root,'Bayesian','Note.md');

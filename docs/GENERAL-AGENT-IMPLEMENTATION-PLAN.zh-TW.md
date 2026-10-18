@@ -24,7 +24,7 @@ Aster 是 Obsidian 裡的 Codex 優先 Agent 工作台：提供多對話、model
 
 目前一般 Chat 使用 Codex 持久 thread 以支援重新開啟與跨重啟恢復；每個 thread 使用 read-only sandbox，停用 shell/web/plugins，並沿用 Codex 自己的登入。Aster 與 Codex 各保存一份對話紀錄；清除 Aster chat 只會清除 Aster transcript 和 session link，Codex session 需在 Codex 端管理。外掛不讀取或保存憑證。知識操作的 provider/tool 權限仍須逐項做 runtime 對照測試，不因競品能力而放寬。
 
-ROADMAP 未完成項目仍有效：繁中／混合語言檢索品質、搜尋導覽/backlinks/open note、多筆提案審核、真實 Obsidian 執行、取消流程、主題共存與無障礙。pending journal inspect/recovery CLI 與跨重啟交易歷史 UI 已有保守復原和 synthetic plugin reload 測試；真實 Obsidian recovery flow 待驗證。Corpus folder chooser 和受限 folder context 已完成基礎切片，詳見以下進度。
+ROADMAP 未完成項目仍有效：繁中／混合語言檢索品質、backlinks、多筆提案審核、真實 Obsidian 執行、取消流程、主題共存與無障礙。Corpus 搜尋與新分頁導覽已有合成 UI 測試；pending journal inspect/recovery CLI 與跨重啟交易歷史 UI 已有保守復原和 synthetic plugin reload 測試；真實 Obsidian runtime/recovery flow 待驗證。Corpus folder chooser 和受限 folder context 已完成基礎切片，詳見以下進度。
 
 ## 本次實作進度（2026-10-18）
 
@@ -39,7 +39,7 @@ ROADMAP 未完成項目仍有效：繁中／混合語言檢索品質、搜尋導
 - 「Attach active note to Aster draft」命令只讀取目前 Markdown 編輯器 buffer（包含尚未存檔的編輯），限制 24,000 字元，將路徑與完整內容放入目前 Chat 的可見 composer；若沒有 Chat 則建立一個。草稿明確標示筆記是未受信任的來源內容，由使用者檢查後自行送出；不呼叫 Vault-wide API、不掃描、不隱藏附加、不改寫筆記。超過限制時拒絕且不截斷。真實 Obsidian buffer/runtime 尚待 disposable Vault 驗證。
 - Chat 可在設定 Corpus 中以 Obsidian fuzzy picker 選擇單篇 Markdown note，或選擇 Corpus 子資料夾作為 context；path-only 清單不讀筆記內容，選取後才讀單一筆記或至多 6 篇資料夾筆記。Folder context 總量上限 24,000 字元，超限不截斷、不建立部分預覽；完整來源快照先顯示，加入 composer 後仍須自行按 Send。Aster 設定的 Corpus folder chooser 使用官方 `Vault.getAllFolders(false)`／`TFolder` 取得可見資料夾中繼資料，以 `visiblePath` 過濾、以既有 `resolveScope` 驗證並保存；文字路徑輸入仍可用。此設計採「API metadata + Obsidian fuzzy picker + Aster path validator」，比只輸入路徑更容易選對資料夾，又避免讀取 note bodies。[Obsidian Vault API](https://docs.obsidian.md/Reference/TypeScript%2BAPI/App/vault)；Copilot 的設定仍採 folder path 欄位加明確 Apply/validation，可作為保留文字輸入的參照：[Copilot BasicSettings](https://github.com/logancyang/obsidian-copilot/blob/master/src/settings/v2/components/BasicSettings.tsx)。
 - Skills MVP 已實作：遵循 Agent Skills `SKILL.md` 的 name/description/frontmatter 慣例，存在使用者 profile 的 `.aster/skills`，最多 40 個；支援建立、編輯、刪除和 slash menu 呼叫。只讀取單一 `SKILL.md`，不解析其引用檔、不執行 scripts、不授予工具或 Vault 權限；呼叫時完整展開成可見、可編輯的 user message，並保留在本機 transcript。`allowed-tools` 不予採用，因為 Aster 權限由 Aster 自己的 Tool Router 管理。
-- 尚未實作工具活動與核准後 Obsidian 操作、任意多筆筆記 context 組合、搜尋導覽/backlinks/open note、多筆提案逐筆審核、Knowledge Studio 整合、Research Desk 或 Vault Curator。Folder chooser、單筆 note preview、受限 folder context、journal recovery 和跨重啟歷史 UI 已有合成測試；真實 Obsidian runtime 仍待驗證。
+- 尚未實作工具活動與核准後 Obsidian 操作、任意多筆筆記 context 組合、backlinks、多筆提案逐筆審核、Knowledge Studio 整合、Research Desk 或 Vault Curator。Corpus 搜尋導覽和開啟筆記、Folder chooser、單筆 note preview、受限 folder context、journal recovery 和跨重啟歷史 UI 已有合成測試；真實 Obsidian runtime 仍待驗證。
 
 ## ANKS 與 Building a Second Brain
 

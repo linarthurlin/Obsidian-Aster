@@ -1,7 +1,7 @@
 import { readdir, lstat, readFile, realpath } from 'node:fs/promises';
 import { resolve, relative, isAbsolute, join } from 'node:path';
 import { safePath, hash, propose, review } from './knowledge.mjs';
-export const LIMITS = { files: 2000, bytes: 200000, targetChars: 32000, excerptChars: 2400, sources: 6 };
+export const LIMITS = { files: 2000, bytes: 200000, searchBytes: 20000000, searchExcerptChars: 420, searchResults: 20, targetChars: 32000, excerptChars: 2400, sources: 6 };
 export function visiblePath(path) {
   return typeof path === 'string' && path.length > 0 && path.length < 1024 && !isAbsolute(path)
     && !/[\\:\u0000-\u001f]/.test(path) && path.split('/').every(part => part && !part.startsWith('.'));
@@ -40,16 +40,60 @@ async function boundedRead(root, path) {
   if (bytes.length > LIMITS.bytes) throw new Error('Note grew beyond the limit: ' + path);
   return bytes.toString('utf8');
 }
+async function searchableNotes(root) {
+  const documents = [];
+  let totalBytes = 0;
+  for (const path of await listNotes(root)) {
+    const info = await lstat(await safePath(root, path));
+    if (info.size > LIMITS.bytes) continue;
+    totalBytes += info.size;
+    if (totalBytes > LIMITS.searchBytes) throw new Error('Corpus exceeds the 20MB local search budget; choose a smaller folder.');
+    documents.push({ path, size: info.size });
+  }
+  return documents;
+}
+export async function searchCorpus(root, query, limit = LIMITS.searchResults) {
+  if (typeof query !== 'string' || !query.trim() || query.length > 500) throw new Error('Enter a search query of 1–500 characters.');
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new Error('Search result limit must be between 1 and 50.');
+  root = await realpath(root);
+  const terms = query.normalize('NFKC').toLowerCase().split(/\s+/).filter(Boolean);
+  const documents = await searchableNotes(root);
+  const hits = [];
+  let scannedBytes = 0;
+  for (const document of documents) {
+    const text = await boundedRead(root, document.path);
+    scannedBytes += Buffer.byteLength(text, 'utf8');
+    if (scannedBytes > LIMITS.searchBytes) throw new Error('Corpus changed beyond the 20MB local search budget; choose a smaller folder.');
+    const normalized = text.normalize('NFKC').toLowerCase();
+    const path = document.path.normalize('NFKC').toLowerCase();
+    const score = terms.reduce((sum, term) => sum + (path.includes(term) ? 5 : 0) + (normalized.includes(term) ? 2 : 0), 0);
+    if (!score) continue;
+    const originalMatch = terms.map(term => text.toLowerCase().indexOf(term)).filter(index => index >= 0);
+    const at = originalMatch.length ? Math.min(...originalMatch) : 0;
+    const from = Math.max(0, text.lastIndexOf('\n', Math.max(0, at - 180)) + 1);
+    hits.push({
+      path: document.path,
+      score,
+      excerpt: text.slice(from, from + LIMITS.searchExcerptChars),
+      startLine: text.slice(0, from).split('\n').length,
+    });
+  }
+  const ordered = hits.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
+  return { query: query.trim(), scannedFiles: documents.length, scannedBytes, truncated: ordered.length > limit, results: ordered.slice(0, limit) };
+}
 export async function prepareContext(root, query, targetPath) {
   if (typeof query !== 'string' || !query.trim() || query.length > 1000) throw new Error('Enter a query of 1–1000 characters.');
   if (!visiblePath(targetPath) || !targetPath.endsWith('.md')) throw new Error('Select an existing Markdown target.');
+  const documents = await searchableNotes(root);
   const targetText = await boundedRead(root, targetPath);
   if (targetText.length > LIMITS.targetChars) throw new Error('Target exceeds 32000 characters; choose a smaller note.');
   const terms = query.normalize('NFKC').toLowerCase().split(/\s+/).filter(Boolean), hits = [];
-  for (const path of await listNotes(root)) {
+  let scannedBytes = 0;
+  for (const { path } of documents) {
     if (path === targetPath) continue;
-    const info = await lstat(await safePath(root, path)); if (info.size > LIMITS.bytes) continue;
     const text = await boundedRead(root, path), lower = text.normalize('NFKC').toLowerCase();
+    scannedBytes += Buffer.byteLength(text, 'utf8');
+    if (scannedBytes > LIMITS.searchBytes) throw new Error('Corpus changed beyond the 20MB search budget; choose a smaller folder.');
     const score = terms.reduce((sum, term) => sum + (path.toLowerCase().includes(term) ? 5 : 0) + (lower.includes(term) ? 2 : 0), 0);
     if (!score) continue;
     // Use original text offsets so excerpts remain verifiable, even with Unicode normalization.

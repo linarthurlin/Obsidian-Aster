@@ -76,10 +76,12 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
   let activeMarkdownView: any = null, currentChatView: any = null, activePlugin: any = null, latestNotePicker: any = null, settingsTab: any = null;
   const settingsActions = new Map<string, () => void>();
   const vaultReads: string[] = [];
+  const openedFiles: string[] = [];
   const syntheticVault = join(testHome, 'SyntheticVault');
   await mkdir(join(syntheticVault, 'ResearchScope'), { recursive: true });
   await mkdir(join(syntheticVault, 'Elsewhere'), { recursive: true });
   await writeFile(join(syntheticVault, 'ResearchScope', 'Scoped.md'), '# Scoped synthetic note\n\nOnly this explicitly selected fixture may enter the draft.');
+  await writeFile(join(syntheticVault, 'ResearchScope', 'SearchOnly.md'), '# Search navigation\n\nSynthetic result should open in its own tab.');
   await writeFile(join(syntheticVault, 'Elsewhere', 'Unlisted.md'), 'This note must never be listed or read.');
   const groupedNotes = ['ResearchScope/Group/One.md', 'ResearchScope/Group/Two.md'];
   const largeFolderNotes = Array.from({ length: 7 }, (_unused, index) => `ResearchScope/Large/Note-${index + 1}.md`);
@@ -90,7 +92,7 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     const body = longFolderNotes.includes(path) ? 'x'.repeat(13_000) : `Synthetic content for ${path}.`;
     await writeFile(absolute, `# ${path}\n\n${body}`);
   }
-  const allowedVaultNotes = new Set(['ResearchScope/Scoped.md', ...groupedNotes, ...largeFolderNotes, ...longFolderNotes]);
+  const allowedVaultNotes = new Set(['ResearchScope/Scoped.md', 'ResearchScope/SearchOnly.md', ...groupedNotes, ...largeFolderNotes, ...longFolderNotes]);
   let view: any, plugin: any, chatId = '', historyPath = '';
   let blockedRenameTarget = '';
   let signalRenameStarted!: () => void, releaseBlockedRename!: () => void;
@@ -148,6 +150,7 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
       detachLeavesOfType() {},
       getActiveViewOfType: () => activeMarkdownView,
       getLeavesOfType: () => currentChatView ? [{ view: currentChatView }] : [],
+      getLeaf: mode => ({ mode, openFile: async (file: any) => { openedFiles.push(file.path); } }),
       revealLeaf: async () => {},
     } };
     async loadData() { return null; }
@@ -211,6 +214,21 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     await view.onOpen();
     expect(fake.children).toHaveLength(0);
     expect(doc.body.textContent).toContain('Vault notes');
+    const searchCorpusButton = Array.from(doc.querySelectorAll('button')).find(button => button.textContent === 'Search Corpus') as HTMLButtonElement;
+    searchCorpusButton.onclick?.(new dom.window.Event('click'));
+    const corpusSearchInput = doc.querySelector('[aria-label="Search the configured Corpus"]') as HTMLInputElement;
+    corpusSearchInput.value = 'Synthetic result should open';
+    (Array.from(doc.querySelectorAll('.pga-chat-corpus-search button')).find(button => button.textContent === 'Search') as HTMLButtonElement).onclick?.(new dom.window.Event('click'));
+    const corpusSearchDeadline = Date.now() + 3000;
+    while (!doc.querySelector('.pga-chat-corpus-search-result') && Date.now() < corpusSearchDeadline) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(doc.querySelector('.pga-chat-corpus-search-result')?.textContent).toContain('SearchOnly.md');
+    expect(doc.querySelector('.pga-chat-corpus-search-status')?.textContent).toContain('1 result(s)');
+    expect(fake.children).toHaveLength(0);
+    (Array.from(doc.querySelectorAll('.pga-chat-corpus-search-result button')).find(button => button.textContent === 'Open note in a new tab') as HTMLButtonElement).onclick?.(new dom.window.Event('click'));
+    const openNoteDeadline = Date.now() + 3000;
+    while (!openedFiles.length && Date.now() < openNoteDeadline) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(openedFiles).toEqual(['ResearchScope/SearchOnly.md']);
+    expect(fake.children).toHaveLength(0);
     const input = doc.querySelector('[aria-label="Message Aster"]') as HTMLTextAreaElement;
     expect(input).not.toBeNull();
     input.value = '/sum';
@@ -350,7 +368,7 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     (doc.querySelector('[aria-label="Choose a note in the configured Corpus to preview as context"]') as HTMLButtonElement).onclick?.(new dom.window.Event('click'));
     const pickerDeadline = Date.now() + 3000;
     while (!latestNotePicker?.opened && Date.now() < pickerDeadline) await new Promise(resolve => setTimeout(resolve, 5));
-    expect(latestNotePicker?.getItems()).toEqual([...groupedNotes, ...largeFolderNotes, ...longFolderNotes, 'ResearchScope/Scoped.md']
+    expect(latestNotePicker?.getItems()).toEqual([...groupedNotes, ...largeFolderNotes, ...longFolderNotes, 'ResearchScope/Scoped.md', 'ResearchScope/SearchOnly.md']
       .map(path => path.replace('ResearchScope/', '')).sort());
     expect(vaultReads).toEqual([]);
     latestNotePicker.onChooseItem('Scoped.md');

@@ -149,7 +149,7 @@ describe('offline review boundary', () => {
     const history = await listTransactionJournals(f.vault, transactionDirectory);
     expect(history.skipped).toBe(0);
     expect(history.items).toEqual([{
-      path: receipt,
+      path: await realpath(receipt),
       status: 'applied',
       planId: plan.id,
       createdAt: plan.createdAt,

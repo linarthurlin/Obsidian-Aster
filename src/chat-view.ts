@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { lstat } from 'node:fs/promises';
 import { listCodexModels } from '../workflow/codex-catalog.mjs';
 import { applyChatCommand, CHAT_COMMANDS, getChatCommandMatches } from '../workflow/chat-commands.mjs';
-import { listNotes, LIMITS } from '../workflow/corpus.mjs';
+import { listNotes, LIMITS, searchCorpus } from '../workflow/corpus.mjs';
 import { defaultExecutable } from '../workflow/codex.mjs';
 import { CodexAppServerClient, type ThreadUsage } from '../workflow/codex-app-server.mjs';
 import { defaultChatStoreRoot, loadChatHistory, saveChatHistory, deleteChatHistory } from '../workflow/chat-store.mjs';
@@ -214,6 +214,19 @@ export class ChatView extends ItemView {
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
     this.setChatStatus(thread.id, `The note ${sourcePath} is in the editable draft. Review it before sending; Aster has not sent or changed the note.`);
+  }
+  private async openCorpusNote(relativePath: string) {
+    if (!this.plugin.settings.corpusFolder) throw new Error('Choose a Corpus folder before opening a search result.');
+    const selectedFolder = this.plugin.settings.corpusFolder;
+    const root = await this.plugin.corpus();
+    if (!(await listNotes(root)).includes(relativePath)) throw new Error('The selected note is no longer inside the configured Corpus.');
+    if (await this.plugin.corpus() !== root || this.plugin.settings.corpusFolder !== selectedFolder) throw new Error('Corpus changed. Run the search again before opening a result.');
+    const vaultPath = selectedFolder + '/' + relativePath;
+    const file = this.app.vault.getAbstractFileByPath(vaultPath);
+    if (!(file instanceof TFile) || file.path !== vaultPath) throw new Error('Obsidian could not resolve this search result inside the selected Corpus.');
+    const leaf = this.app.workspace.getLeaf('tab');
+    await leaf.openFile(file);
+    await this.app.workspace.revealLeaf(leaf);
   }
   private async openScopedNotePicker() {
     if (this.clearingChats) return;
@@ -616,7 +629,47 @@ export class ChatView extends ItemView {
       } finally { this.catalogLoading = false; }
       await this.render();
     };
-
+    const corpusSearch = panel.createDiv({ cls: 'pga-chat-corpus-search' });
+    corpusSearch.hidden = true;
+    const searchForm = corpusSearch.createDiv({ cls: 'pga-chat-corpus-search-form' });
+    searchForm.createEl('label', { text: 'Search the configured Corpus' });
+    const searchQuery = searchForm.createEl('input', { type: 'search', placeholder: 'Search note names and text…', attr: { 'aria-label': 'Search the configured Corpus', maxlength: '500' } });
+    const searchSubmit = searchForm.createEl('button', { text: 'Search' });
+    const searchStatus = corpusSearch.createDiv({ cls: 'pga-chat-corpus-search-status', attr: { role: 'status', 'aria-live': 'polite' } });
+    const searchResults = corpusSearch.createDiv({ cls: 'pga-chat-corpus-search-results', attr: { role: 'list', 'aria-label': 'Corpus search results' } });
+    const runCorpusSearch = async () => {
+      if (this.clearingChats || searchSubmit.disabled) return;
+      searchSubmit.disabled = true; searchResults.empty();
+      searchStatus.setText('Searching only the configured Corpus locally. Nothing is sent to Codex.');
+      try {
+        const root = await this.plugin.corpus();
+        const result = await searchCorpus(root, searchQuery.value);
+        if (this.closed) return;
+        searchStatus.setText(result.results.length + ' result(s) · ' + result.scannedFiles + ' notes · ' + Math.ceil(result.scannedBytes / 1024).toLocaleString() + ' KB scanned locally'
+          + (result.truncated ? ' · showing the first ' + result.results.length : '') + '. No note text was sent.');
+        if (!result.results.length) searchResults.createDiv({ cls: 'pga-chat-list-empty', text: 'No matching notes in the configured Corpus.' });
+        for (const hit of result.results) {
+          const entry = searchResults.createDiv({ cls: 'pga-chat-corpus-search-result', attr: { role: 'listitem' } });
+          entry.createEl('strong', { text: hit.path });
+          entry.createEl('span', { text: 'Line ' + hit.startLine + ' · score ' + hit.score });
+          entry.createEl('pre', { text: hit.excerpt });
+          const open = entry.createEl('button', { text: 'Open note in a new tab', attr: { 'aria-label': 'Open ' + hit.path + ' in a new tab' } });
+          open.onclick = async () => {
+            open.disabled = true;
+            try {
+              await this.openCorpusNote(hit.path);
+              searchStatus.setText('Opened ' + hit.path + ' in a new tab. Search text remains local and was not added to chat.');
+            } catch (error) {
+              searchStatus.setText(error instanceof Error ? error.message : 'Could not open this Corpus note.');
+            } finally { open.disabled = false; }
+          };
+        }
+      } catch (error) {
+        if (!this.closed) searchStatus.setText(error instanceof Error ? error.message : 'Could not search the configured Corpus.');
+      } finally { searchSubmit.disabled = false; }
+    };
+    searchSubmit.onclick = runCorpusSearch;
+    searchQuery.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); void runCorpusSearch(); } };
     if (thread?.projectName) {
       const projectContext = panel.createDiv({ cls: 'pga-chat-project-context' });
       projectContext.createEl('strong', { text: 'Project · ' + thread.projectName });
@@ -676,6 +729,13 @@ export class ChatView extends ItemView {
     const input = composer.createEl('textarea', { placeholder: 'Message Aster… (Ctrl+Enter to send)', attr: { 'aria-label': 'Message Aster', rows: '3', maxlength: '40000' } });
     const slashMenu = composer.createDiv({ cls: 'pga-chat-slash-menu', attr: { role: 'listbox', 'aria-label': 'Chat prompt commands' } });
     const composerActions = composer.createDiv({ cls: 'pga-chat-composer-actions' });
+    const corpusSearchButton = composerActions.createEl('button', { text: 'Search Corpus' });
+    corpusSearchButton.setAttribute('aria-expanded', 'false');
+    corpusSearchButton.onclick = () => {
+      corpusSearch.hidden = !corpusSearch.hidden;
+      corpusSearchButton.setAttribute('aria-expanded', String(!corpusSearch.hidden));
+      if (!corpusSearch.hidden) searchQuery.focus();
+    };
     const addNoteButton = composerActions.createEl('button', { text: '＋ Add note context' });
     addNoteButton.setAttribute('aria-label', 'Choose a note in the configured Corpus to preview as context');
     addNoteButton.disabled = this.clearingChats || !!pendingContext;
