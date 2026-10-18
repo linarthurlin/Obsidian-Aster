@@ -1,6 +1,6 @@
 {
   "name": "obsidian-personal-glass",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "description": "Local-first glass surfaces and Markdown tools for Obsidian",

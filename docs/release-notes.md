@@ -1,4 +1,11 @@
-Personal Glass 0.2.1 development prerelease.
+Personal Glass 0.2.2 development prerelease.
+
+- Removes selection glass: fully opaque two-color fill, no backdrop blur, specular highlights, border shine or shadow.
+- Retains independent light/dark endpoint colors, gradient direction, settings preview and reset; removes glass/blur/opacity controls.
+- Old glass settings cannot re-enable effects. Custom colors remain; the old default dark pair migrates to muted opaque colors.
+- Adds a browser-verified synthetic preview using the shipped CSS. This is not an Obsidian runtime screenshot.
+
+Previous 0.2.1 features:
 
 - Adds configurable Champagne × Sage selection glass: independent light/dark endpoint colors and opacity, background blur, highlight/shadow strength, gradient angle, live settings preview and reset.
 - Keeps the current file visibly filled, replaces the single side indicator, avoids stale selected rows, adapts foreground text for custom colors, and restores inline appearance variables on unload.

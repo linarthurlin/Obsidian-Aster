@@ -181,8 +181,8 @@ class GlassSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName('Local note previews').setDesc('Off by default. Reads only displayed Markdown rows; no AI or external images.').addToggle(toggle => toggle.setValue(this.plugin.settings.navigatorPreviews).onChange(async value => {
       this.plugin.settings.navigatorPreviews = value; await this.plugin.persist();
     }));
-    containerEl.createEl('h3', { text: 'Selection glass / 文件選取玻璃' });
-    containerEl.createEl('p', { text: 'Champagne × Sage by default. Light and dark colors are independent. Changes apply immediately to Navigator, native File explorer and the optional Notebook Navigator. Blur affects only the background; a uniform background may show little visible blur.' });
+    containerEl.createEl('h3', { text: 'Selection colors / 文件選取配色' });
+    containerEl.createEl('p', { text: 'Opaque Champagne × Sage gradient, without blur, highlights or shadow. Light and dark colors are independent. Changes apply immediately to Navigator, native File explorer and optional Notebook Navigator.' });
     const preview = containerEl.createDiv({ cls: 'pg-selection-preview', attr: { 'aria-label': 'Selection appearance preview' } });
     preview.createEl('strong', { text: 'Personal Glass' });
     preview.createSpan({ text: 'A quiet space for connected ideas' });
@@ -193,16 +193,12 @@ class GlassSettingTab extends PluginSettingTab {
       this.plugin.settings[key] = value; await this.plugin.persist();
     }));
     for (const [key, label, max, description] of [
-      ['selectionLightOpacity', 'Light · color opacity / 淺色不透明度', 100, '10–100%. Lower values expose more background.'],
-      ['selectionDarkOpacity', 'Dark · color opacity / 深色不透明度', 100, '10–100%. Keep enough fill to identify the current file.'],
-      ['selectionGlass', 'Glass strength / 玻璃程度', 100, 'Controls inner highlights and soft shadow. 0 gives flat fill and disables blur.'],
-      ['selectionBlur', 'Background blur / 背景模糊', 24, '0–24px. Never blurs the text. Requires glass strength above zero.'],
       ['selectionAngle', 'Gradient angle / 漸層方向', 360, '0–360 degrees.'],
     ] as const) new Setting(containerEl).setName(label).setDesc(description).addSlider(slider => slider
-      .setLimits(key.includes('Opacity') ? 10 : 0, max, 1).setValue(this.plugin.settings[key]).setDynamicTooltip().onChange(async value => {
+      .setLimits(0, max, 1).setValue(this.plugin.settings[key]).setDynamicTooltip().onChange(async value => {
         this.plugin.settings[key] = value; await this.plugin.persist();
       }));
-    new Setting(containerEl).setName('Reset selection / 回復選取預設').setDesc('Restore Champagne × Sage colors and glass settings only.').addButton(button => button.setButtonText('Reset').onClick(async () => {
+    new Setting(containerEl).setName('Reset selection / 回復選取預設').setDesc('Restore Champagne × Sage colors and gradient direction only.').addButton(button => button.setButtonText('Reset').onClick(async () => {
       for (const key of Object.keys(DEFAULT_SETTINGS).filter(key => key.startsWith('selection')) as Array<keyof GlassSettings>) {
         Object.assign(this.plugin.settings, { [key]: DEFAULT_SETTINGS[key] });
       }

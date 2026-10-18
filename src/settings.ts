@@ -28,9 +28,9 @@ export const DEFAULT_SETTINGS: GlassSettings = {
   roundedImages: true, reduceMotion: false, contentWidth: 820,
   navigatorLayout: 'auto', navigatorPreviews: false, pinnedPaths: [], recentPaths: [],
   selectionLightStart: '#e9d9ba', selectionLightEnd: '#c8dacb',
-  selectionDarkStart: '#a48c5c', selectionDarkEnd: '#6e9b83',
-  selectionLightOpacity: 65, selectionDarkOpacity: 32, selectionBlur: 12,
-  selectionGlass: 55, selectionAngle: 115,
+  selectionDarkStart: '#514a39', selectionDarkEnd: '#354c41',
+  selectionLightOpacity: 100, selectionDarkOpacity: 100, selectionBlur: 0,
+  selectionGlass: 0, selectionAngle: 115,
 };
 export function normalizeSettings(value: unknown): GlassSettings {
   const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -53,9 +53,11 @@ export function normalizeSettings(value: unknown): GlassSettings {
     pinnedPaths: sanitizePaths(raw.pinnedPaths, 200),
     recentPaths: sanitizePaths(raw.recentPaths, 40),
     selectionLightStart: color('selectionLightStart'), selectionLightEnd: color('selectionLightEnd'),
-    selectionDarkStart: color('selectionDarkStart'), selectionDarkEnd: color('selectionDarkEnd'),
-    selectionLightOpacity: number('selectionLightOpacity', 10, 100), selectionDarkOpacity: number('selectionDarkOpacity', 10, 100),
-    selectionBlur: number('selectionBlur', 0, 24), selectionGlass: number('selectionGlass', 0, 100),
+    selectionDarkStart: raw.selectionDarkStart === '#a48c5c' && raw.selectionDarkEnd === '#6e9b83' ? DEFAULT_SETTINGS.selectionDarkStart : color('selectionDarkStart'),
+    selectionDarkEnd: raw.selectionDarkStart === '#a48c5c' && raw.selectionDarkEnd === '#6e9b83' ? DEFAULT_SETTINGS.selectionDarkEnd : color('selectionDarkEnd'),
+    // Legacy fields remain readable, but flat selection never re-enables glass from old data.
+    selectionLightOpacity: 100, selectionDarkOpacity: 100,
+    selectionBlur: 0, selectionGlass: 0,
     selectionAngle: number('selectionAngle', 0, 360),
   };
 }

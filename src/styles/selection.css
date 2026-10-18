@@ -1,10 +1,10 @@
 /* Shared by theme and companion: explicit colors, never opacity/filter on text. */
 body {
   --pg-selection-light-start: #e9d9ba; --pg-selection-light-end: #c8dacb;
-  --pg-selection-dark-start: #a48c5c; --pg-selection-dark-end: #6e9b83;
-  --pg-selection-light-opacity: 65%; --pg-selection-dark-opacity: 32%;
-  --pg-selection-angle: 115deg; --pg-selection-blur: 12px;
-  --pg-selection-highlight: 39%; --pg-selection-shadow: 9%; --pg-selection-shadow-size: 7px;
+  --pg-selection-dark-start: #514a39; --pg-selection-dark-end: #354c41;
+  --pg-selection-light-opacity: 100%; --pg-selection-dark-opacity: 100%;
+  --pg-selection-angle: 115deg; --pg-selection-blur: 0px;
+  --pg-selection-highlight: 0%; --pg-selection-shadow: 0%; --pg-selection-shadow-size: 0px;
   --pg-selection-start: var(--pg-selection-light-start); --pg-selection-end: var(--pg-selection-light-end);
   --pg-selection-opacity: var(--pg-selection-light-opacity);
   --pg-selection-text: var(--pg-selection-light-text, #252b25);
@@ -19,14 +19,12 @@ body .nav-file-title.is-active,
 body .pg-selection-preview,
 body .nn-file.nn-selected .nn-file-content::before {
   background: linear-gradient(var(--pg-selection-angle),
-    color-mix(in srgb, var(--pg-selection-start) var(--pg-selection-opacity), transparent),
-    color-mix(in srgb, var(--pg-selection-end) var(--pg-selection-opacity), transparent)) !important;
-  backdrop-filter: blur(var(--pg-selection-blur)) saturate(1.08);
-  -webkit-backdrop-filter: blur(var(--pg-selection-blur)) saturate(1.08);
+    var(--pg-selection-start), var(--pg-selection-end)) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   border-radius: 14px;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white var(--pg-selection-highlight), transparent),
-    inset 0 0 0 1px color-mix(in srgb, white var(--pg-selection-highlight), transparent),
-    0 3px var(--pg-selection-shadow-size) rgb(0 0 0 / var(--pg-selection-shadow)) !important;
+  box-shadow: none !important;
+  border-color: transparent;
   color: var(--pg-selection-text);
 }
 body .pg-file:is(.is-selected, [aria-current='page']) :is(.pg-file-title,.pg-file-path,.pg-file-preview,.pg-file-icon),
