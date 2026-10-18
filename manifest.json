@@ -1,7 +1,7 @@
 {
   "id": "knowledge-agent",
   "name": "Knowledge Agent",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "minAppVersion": "1.6.0",
   "description": "Scoped local retrieval, opt-in Codex CLI proposals, evidence review and explicit updates with rollback.",
   "author": "linarthurlin",

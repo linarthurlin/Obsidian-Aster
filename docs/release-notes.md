@@ -1,4 +1,6 @@
-Knowledge Agent 0.2.0 development prerelease.
+Knowledge Agent 0.2.1 development prerelease.
+
+Includes a Windows CI correction: compare canonical corpus paths rather than short/long filename spellings.
 
 - Adds explicit-folder local retrieval with bounded targets and source excerpts.
 - Adds Codex CLI provider using existing CLI authentication, direct process arguments, isolated cwd, read-only sandbox, ephemeral structured output and disabled tool features. No API keys stored by the plugin.

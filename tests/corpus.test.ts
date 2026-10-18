@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { mkdtemp, mkdir, writeFile, readFile, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, symlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepareContext, contextDigest, assertContextFresh, suggestionPlan, validateSuggestion, resolveScope, listNotes } from '../workflow/corpus.mjs';
@@ -13,7 +13,7 @@ async function fixture() {
   return {home,root};
 }
 it('requires a visible explicit folder and excludes hidden/linked/outside notes',async()=>{
-  const f=await fixture();expect(await resolveScope(f.home,'Selected')).toBe(f.root);
+  const f=await fixture();expect(await resolveScope(f.home,'Selected')).toBe(await realpath(f.root));
   await expect(resolveScope(f.home,'')).rejects.toThrow('whole-vault');
   await expect(resolveScope(f.home,'../Selected')).rejects.toThrow();
   await symlink(f.root,join(f.home,'Linked'),process.platform==='win32'?'junction':'dir');
