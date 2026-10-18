@@ -23,7 +23,6 @@ export async function safePath(rootPath, path, mustExist = true) {
   return absolute;
 }
 export async function search(root, query, limit = 10) {
-  const { readdir } = await import('node:fs/promises');
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
   const hits = [];
   async function walk(dir) {

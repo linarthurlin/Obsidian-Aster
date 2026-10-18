@@ -1,6 +1,7 @@
 import type {Plan} from './corpus.mjs';
 export function safePath(rootPath:string,path:string,mustExist?:boolean):Promise<string>;
 export function apply(root:string,plan:Plan,digest:string,transactionPath:string):Promise<{status:string;updated:number}>;
+export function review(plan:Plan):{digest:string;changes:Array<{path:string;reason:string;diff:string;sources:Array<{path:string;hash:string;excerpt:string;locator:string}>;related:unknown[]}>};
 export function rollback(root:string,transaction:unknown):Promise<{status:string;restored:number}>;
 export function inspectTransactionJournal(root:string,journalPath:string):Promise<{status:string;digest:string;planId:string;createdAt:string;targets:{path:string;state:'before'|'after'|'conflict'|'missing'}[];recovery?:{action?:string;startedAt?:string;updatedAt?:string;completedAt?:string;restoredCount:number;conflicts:string[]}}>;
 export function listTransactionJournals(root:string,journalDirectory:string,limit?:number):Promise<{items:{path:string;status:string;planId:string;createdAt:string;targetPaths:string[]}[];skipped:number}>;

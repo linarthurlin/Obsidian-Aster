@@ -5,9 +5,10 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { normalizeSettings, type Settings } from './settings';
 import { ChatView, ASTER_CHAT_VIEW } from './chat-view';
-import { listNotes, visiblePath, resolveScope, prepareContext, contextDigest, assertContextFresh, suggestionPlan, type Context, type Reviewed } from '../workflow/corpus.mjs';
-import { runCodex } from '../workflow/codex.mjs';
-import { apply, listTransactionJournals, readTransactionReview, recoverTransactionJournal, rollbackTransactionJournal } from '../workflow/knowledge.mjs';
+import { listNotes, visiblePath, resolveScope, prepareContext, prepareBatchContext, contextDigest, assertContextFresh, suggestionPlan, batchSuggestionPlan, type Context, type Reviewed } from '../workflow/corpus.mjs';
+import { runCodex, runBatchCodex } from '../workflow/codex.mjs';
+import { apply, listTransactionJournals, readTransactionReview, recoverTransactionJournal, rollbackTransactionJournal, review as reviewPlan } from '../workflow/knowledge.mjs';
+import { renderProposalReviewCard, type ProposalReviewCard } from './proposal-review';
 const VIEW = 'knowledge-agent-workbench';
 class CorpusFolderPicker extends FuzzySuggestModal<TFolder> {
   constructor(app: App, private folders: TFolder[], private onChooseFolder: (folder: TFolder) => void) {
@@ -31,11 +32,12 @@ class Workbench extends ItemView {
     this.closed = false;
     const root = this.contentEl; root.empty(); root.addClass('pga-workbench');
     root.createEl('h2', { text: 'Aster' });
-    root.createEl('p', { text: 'Select a folder and target, inspect the context, then request a Codex proposal. No background scanning or automatic edits.' });
+    root.createEl('p', { text: 'Select a Corpus folder and one or more target notes, inspect the exact context, then request a Codex proposal. No background scanning or automatic edits.' });
     const scope = root.createEl('p', { cls: 'pga-status', text: 'Corpus: ' + (this.plugin.settings.corpusFolder || 'Choose a folder in Settings → Aster') });
     const query = root.createEl('input', { type: 'text', placeholder: 'Find source evidence…', attr: { 'aria-label': 'Source query', maxlength: '1000' } });
-    const targets = root.createEl('select', { attr: { 'aria-label': 'Target note' } });
+    const targets = root.createEl('select', { attr: { 'aria-label': 'Target notes, select one or more', multiple: 'multiple', size: '6' } });
     targets.createEl('option', { value: '', text: 'Load notes from the selected folder' });
+    root.createEl('p', { text: 'Select one target, or Ctrl-click up to four notes for an independently reviewable multi-note proposal.' });
     const actions = root.createDiv({ cls: 'pga-actions' });
     const load = actions.createEl('button', { text: 'Load scoped notes / 載入範圍' });
     const prepare = actions.createEl('button', { text: 'Preview context / 預覽內容' }); prepare.disabled = true;
@@ -51,10 +53,16 @@ class Workbench extends ItemView {
     const historyActions = root.createDiv({ cls: 'pga-actions' });
     const historyButton = historyActions.createEl('button', { text: 'Transaction history / 交易紀錄' });
     const historyArea = root.createDiv({ cls: 'pga-results pga-transaction-history' });
-    let corpus = '', context: Context | undefined, reviewed: Reviewed | null = null, receipt = '';
+    type WorkbenchContext = Context | Awaited<ReturnType<typeof prepareBatchContext>>;
+    let corpus = '', context: WorkbenchContext | undefined, reviewed: Reviewed | null = null;
     let historyLoading = false;
     const invalidate = () => { ++this.generation; context = undefined; reviewed = null; consent.checked = false; send.disabled = true; contextArea.empty(); resultArea.empty(); };
-    const report = (error: unknown) => { if (!this.closed) status.setText(error instanceof Error ? error.message : 'Operation failed.'); };
+    const report = (error: unknown) => {
+      if (this.closed) return;
+      const detail = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
+        ? error.message : typeof error === 'string' ? error : 'Operation failed.';
+      status.setText(detail);
+    };
     const locked = (busy: boolean) => { load.disabled = busy; prepare.disabled = busy || !targets.value; query.disabled = busy; targets.disabled = busy; consent.disabled = busy; send.disabled = busy || !context || !consent.checked; cancel.disabled = !busy; historyButton.disabled = busy || historyLoading; };
     const showTransactionReview = async (transaction: { path: string; status: string; targetPaths: string[] }, container: HTMLElement, selectedCorpus: string) => {
       container.empty();
@@ -134,7 +142,7 @@ class Workbench extends ItemView {
     };
     historyButton.onclick = () => loadHistory();
     this.registerDomEvent(query, 'input', invalidate);
-    this.registerDomEvent(targets, 'change', () => { invalidate(); prepare.disabled = !targets.value; });
+    this.registerDomEvent(targets, 'change', () => { invalidate(); prepare.disabled = !targets.selectedOptions.length; });
     this.registerDomEvent(consent, 'change', () => { send.disabled = !context || !consent.checked || !!this.abort; });
     cancel.onclick = () => this.abort?.abort();
     load.onclick = async () => {
@@ -149,14 +157,20 @@ class Workbench extends ItemView {
       } catch (error) { targets.value = ''; report(error); } finally { if (!this.closed) locked(false); }
     };
     prepare.onclick = async () => {
-      invalidate(); const generation = this.generation; locked(true);
+      invalidate(); const generation = this.generation; const targetPaths = Array.from(targets.selectedOptions).map(option => option.value).filter(Boolean); locked(true);
       try {
         // Resolve again in case settings changed after the metadata list was loaded.
-        corpus = await this.plugin.corpus(); const captured = await prepareContext(corpus, query.value, targets.value);
+        if (!targetPaths.length) throw new Error('Select at least one existing target note.');
+        corpus = await this.plugin.corpus();
+        const captured = targetPaths.length > 1
+          ? await prepareBatchContext(corpus, query.value, targetPaths)
+          : await prepareContext(corpus, query.value, targetPaths[0]);
         if (this.closed || generation !== this.generation) return;
         context = captured;
         contextArea.createEl('h3', { text: 'Exact model context / 實際送出內容' });
-        contextArea.createEl('p', { text: 'One complete target note and up to six bounded source excerpts. No other note bodies are sent. Codex uses your CLI account; this is an external model request.' });
+        contextArea.createEl('p', { text: 'targets' in context
+          ? 'The selected target notes (at most four and 48,000 characters combined) plus up to six bounded source excerpts are sent. No other note bodies are sent. Codex uses your CLI account; this is an external model request.'
+          : 'One complete target note and up to six bounded source excerpts. No other note bodies are sent. Codex uses your CLI account; this is an external model request.' });
         contextArea.createEl('pre', { text: JSON.stringify(context, null, 2), cls: 'pga-code' });
         status.setText(context.sources.length + ' source excerpts prepared. Review before checking consent.');
       } catch (error) { report(error); } finally { if (!this.closed) locked(false); }
@@ -169,44 +183,52 @@ class Workbench extends ItemView {
         if (await this.plugin.corpus() !== corpus) throw new Error('Corpus changed. Reload and preview again.');
         await assertContextFresh(corpus, approved);
         status.setText('Codex is generating a proposal. No note edits are allowed.');
-        const suggestion = await runCodex(approved, { approvedDigest: contextDigest(approved), executable: this.plugin.settings.executable || undefined,
-          model: this.plugin.settings.model || undefined, signal: abort.signal });
+        const options = { approvedDigest: contextDigest(approved), executable: this.plugin.settings.executable || undefined,
+          model: this.plugin.settings.model || undefined, signal: abort.signal };
+        let suggestionReason = '';
+        if ('targets' in approved) {
+          const suggestion = await runBatchCodex(approved, options);
+          suggestionReason = suggestion.reason;
+          reviewed = await batchSuggestionPlan(corpus, approved, suggestion);
+        } else {
+          const suggestion = await runCodex(approved, options);
+          suggestionReason = suggestion.reason;
+          reviewed = await suggestionPlan(corpus, approved, suggestion);
+        }
         if (this.closed || abort.signal.aborted || generation !== this.generation) return;
-        reviewed = await suggestionPlan(corpus, approved, suggestion);
         if (this.closed || generation !== this.generation) return;
         consent.checked = false;
-        if (!reviewed) { status.setText('No supported change proposed: ' + suggestion.reason); return; }
+        if (!reviewed) { status.setText('No supported change proposed: ' + suggestionReason); return; }
         const candidate = reviewed;
         resultArea.createEl('h3', { text: 'Review proposal / 審核提案' });
-        resultArea.createEl('p', { text: suggestion.reason });
-        resultArea.createEl('pre', { text: candidate.review.changes[0].diff, cls: 'pga-code' });
-        for (const source of candidate.review.changes[0].sources) {
-          resultArea.createEl('h4', { text: source.path + ' · ' + source.locator });
-          resultArea.createEl('blockquote', { text: source.excerpt });
-        }
+        resultArea.createEl('p', { text: suggestionReason + ` · ${candidate.review.changes.length} independently reviewable change(s).` });
         resultArea.createEl('p', { text: 'Exact excerpts prove quotation presence, not that the reasoning is correct. Review formulas, claims and preserved content yourself.' });
-        const reviewLabel = resultArea.createEl('label', { cls: 'pga-consent' }); const approvedEdit = reviewLabel.createEl('input', { type: 'checkbox' });
-        reviewLabel.createSpan({ text: 'I reviewed this diff and its evidence / 已審核差異與證據' });
-        const applyButton = resultArea.createEl('button', { text: 'Apply this reviewed update / 套用此更新' }); applyButton.disabled = true;
-        const rollbackButton = resultArea.createEl('button', { text: 'Rollback this update / 回復此更新' }); rollbackButton.disabled = true;
-        approvedEdit.onchange = () => { applyButton.disabled = !approvedEdit.checked; };
-        applyButton.onclick = async () => {
-          if (!approvedEdit.checked || reviewed !== candidate) return;
-          applyButton.disabled = true; approvedEdit.disabled = true; locked(true);
-          try {
-            if (await this.plugin.corpus() !== corpus) throw new Error('Corpus changed. Prepare a new proposal.');
-            const journal = join(homedir(), '.knowledge-agent', 'transactions'); await mkdir(journal, { recursive: true });
-            receipt = join(journal, candidate.plan.id + '-' + randomUUID() + '.private.json');
-            await apply(corpus, candidate.plan, candidate.review.digest, receipt);
-            rollbackButton.disabled = false; reviewed = null; context = undefined;
-            status.setText('Applied one reviewed update. Recovery journal: ' + receipt);
-          } catch (error) { report(error); } finally { if (!this.closed) locked(false); }
-        };
-        rollbackButton.onclick = async () => {
-          rollbackButton.disabled = true; locked(true);
-          try { await rollbackTransactionJournal(corpus, receipt); status.setText('Update rolled back. Later human edits are never overwritten.'); }
-          catch (error) { report(error); rollbackButton.disabled = false; } finally { if (!this.closed) locked(false); }
-        };
+        const cards: ProposalReviewCard[] = [];
+        for (const change of candidate.review.changes) {
+          const operation = candidate.plan.operations.find(item => item.path === change.path);
+          if (!operation) throw new Error('Proposal operation is missing for ' + change.path);
+          const card = renderProposalReviewCard(resultArea, change, {
+            setBusy: busy => { cards.forEach(item => item.setExternalBusy(busy)); locked(busy); },
+            apply: async () => {
+              if (reviewed !== candidate) throw new Error('Proposal is no longer current. Prepare and review a new context.');
+              if (await this.plugin.corpus() !== corpus) throw new Error('Corpus changed. Prepare a new proposal.');
+              const singlePlan = { ...candidate.plan, operations: [operation] };
+              const singleReview = reviewPlan(singlePlan);
+              const journal = join(homedir(), '.knowledge-agent', 'transactions'); await mkdir(journal, { recursive: true });
+              const receipt = join(journal, singlePlan.id + '-' + randomUUID() + '.private.json');
+              await apply(corpus, singlePlan, singleReview.digest, receipt);
+              context = undefined;
+              status.setText('Applied ' + change.path + '. Other reviewed items remain separate and unchanged.');
+              return receipt;
+            },
+            rollback: async receipt => {
+              if (await this.plugin.corpus() !== corpus) throw new Error('Corpus changed. Reopen transaction history for the original scope.');
+              await rollbackTransactionJournal(corpus, receipt);
+              status.setText('Rolled back ' + change.path + '. Later human edits are protected by target hash checks.');
+            },
+          });
+          cards.push(card);
+        }
         status.setText('Proposal validated locally. No notes changed; read the diff and evidence.');
       } catch (error) { report(error); }
       finally { this.abort = undefined; if (!this.closed) locked(false); }

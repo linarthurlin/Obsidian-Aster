@@ -1,7 +1,7 @@
 import { readdir, lstat, readFile, realpath } from 'node:fs/promises';
 import { resolve, relative, isAbsolute, join } from 'node:path';
 import { safePath, hash, propose, review } from './knowledge.mjs';
-export const LIMITS = { files: 2000, bytes: 200000, searchBytes: 20000000, searchExcerptChars: 420, searchResults: 20, targetChars: 32000, excerptChars: 2400, sources: 6 };
+export const LIMITS = { files: 2000, bytes: 200000, searchBytes: 20000000, searchExcerptChars: 420, searchResults: 20, targetChars: 32000, batchTargets: 4, batchTargetChars: 48000, excerptChars: 2400, sources: 6 };
 export function visiblePath(path) {
   return typeof path === 'string' && path.length > 0 && path.length < 1024 && !isAbsolute(path)
     && !/[\\:\u0000-\u001f]/.test(path) && path.split('/').every(part => part && !part.startsWith('.'));
@@ -120,9 +120,46 @@ export async function prepareContext(root, query, targetPath) {
   if (!sources.length) throw new Error('No matching source notes in this corpus. Change the query; nothing was sent.');
   return { schema: 1, query: query.trim(), target: { path: targetPath, hash: hash(targetText), text: targetText }, sources };
 }
+export async function prepareBatchContext(root, query, targetPaths) {
+  if (typeof query !== 'string' || !query.trim() || query.length > 1000) throw new Error('Enter a query of 1–1000 characters.');
+  if (!Array.isArray(targetPaths) || targetPaths.length < 2 || targetPaths.length > LIMITS.batchTargets
+    || targetPaths.some(path => !visiblePath(path) || !path.endsWith('.md')) || new Set(targetPaths).size !== targetPaths.length)
+    throw new Error(`Select 2–${LIMITS.batchTargets} distinct Markdown targets in the configured Corpus.`);
+  root = await realpath(root);
+  const documents = await searchableNotes(root);
+  const available = new Set(documents.map(document => document.path));
+  const targetSet = new Set(targetPaths);
+  const targets = [];
+  let targetChars = 0;
+  for (const path of targetPaths) {
+    if (!available.has(path)) throw new Error('Target is outside the searchable Corpus or exceeds the note size limit: ' + path);
+    const text = await boundedRead(root, path);
+    targetChars += text.length;
+    if (targetChars > LIMITS.batchTargetChars) throw new Error('Selected targets exceed the 48000-character combined context limit. Choose fewer or smaller notes.');
+    targets.push({ path, hash: hash(text), text });
+  }
+  const terms = query.normalize('NFKC').toLowerCase().split(/\s+/).filter(Boolean), hits = [];
+  let scannedBytes = 0;
+  for (const { path } of documents) {
+    if (targetSet.has(path)) continue;
+    const text = await boundedRead(root, path), lower = text.normalize('NFKC').toLowerCase();
+    scannedBytes += Buffer.byteLength(text, 'utf8');
+    if (scannedBytes > LIMITS.searchBytes) throw new Error('Corpus changed beyond the 20MB search budget; choose a smaller folder.');
+    const score = terms.reduce((sum, term) => sum + (path.normalize('NFKC').toLowerCase().includes(term) ? 5 : 0) + (lower.includes(term) ? 2 : 0), 0);
+    if (!score) continue;
+    const at = Math.max(0, text.toLowerCase().indexOf(terms.find(term => text.toLowerCase().includes(term)) || terms[0]));
+    const from = Math.max(0, text.lastIndexOf('\n', Math.max(0, at - 240)) + 1);
+    hits.push({ path, hash: hash(text), excerpt: text.slice(from, from + LIMITS.excerptChars),
+      startLine: text.slice(0, from).split('\n').length, score });
+  }
+  const sources = hits.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).slice(0, LIMITS.sources);
+  if (!sources.length) throw new Error('No matching source notes in this corpus. Change the query; nothing was sent.');
+  return { schema: 2, query: query.trim(), targets, sources };
+}
 export function contextDigest(context) { return hash(JSON.stringify(context)); }
 export async function assertContextFresh(root, context) {
-  if (hash(await boundedRead(root, context.target.path)) !== context.target.hash) throw new Error('Target changed. Prepare a new context.');
+  const targets = Array.isArray(context.targets) ? context.targets : [context.target];
+  for (const target of targets) if (hash(await boundedRead(root, target.path)) !== target.hash) throw new Error('Target changed. Prepare a new context: ' + target.path);
   for (const source of context.sources) if (hash(await boundedRead(root, source.path)) !== source.hash) throw new Error('Source changed. Prepare a new context: ' + source.path);
 }
 export function validateSuggestion(context, output) {
@@ -146,5 +183,49 @@ export async function suggestionPlan(root, context, output) {
   const plan = await propose(root, [{ path: context.target.path, after: output.after, reason: output.reason,
     sources: output.sources.map(source => ({ ...source, locator: 'Approved excerpt beginning at line ' + context.sources.find(item => item.path === source.path).startLine })) }]);
   if (plan.operations[0].beforeHash !== context.target.hash || plan.operations[0].sources.some(source => source.hash !== context.sources.find(item => item.path === source.path).hash)) throw new Error('Context changed during proposal creation.');
+  return { plan, review: review(plan) };
+}
+export function validateBatchSuggestion(context, output) {
+  if (!context || context.schema !== 2 || !Array.isArray(context.targets) || context.targets.length < 2
+    || context.targets.length > LIMITS.batchTargets || !Array.isArray(context.sources)
+    || !output || !['proposal', 'no_change'].includes(output.status) || typeof output.reason !== 'string' || !output.reason.trim()
+    || output.reason.length > 4000 || !Array.isArray(output.operations) || output.operations.length > context.targets.length)
+    throw new Error('Invalid multi-note proposal.');
+  const targets = new Map(context.targets.map(target => [target.path, target]));
+  const seen = new Set();
+  if (output.status === 'no_change') {
+    if (output.operations.length) throw new Error('A no-change result cannot contain operations.');
+    return output;
+  }
+  if (!output.operations.length) throw new Error('A multi-note update needs at least one reviewed change.');
+  for (const operation of output.operations) {
+    const target = targets.get(operation?.path);
+    if (!target || seen.has(operation.path)) throw new Error('Proposal contains an unselected or duplicate target.');
+    seen.add(operation.path);
+    if (typeof operation.reason !== 'string' || !operation.reason.trim() || operation.reason.length > 4000
+      || typeof operation.after !== 'string' || operation.after.length > LIMITS.targetChars || !operation.after.trim()
+      || operation.after === target.text || !Array.isArray(operation.sources) || !operation.sources.length || operation.sources.length > LIMITS.sources)
+      throw new Error('Invalid change for selected target: ' + operation.path);
+    for (const source of operation.sources) {
+      const allowed = context.sources.find(item => item.path === source?.path);
+      if (!allowed || typeof source.excerpt !== 'string' || !source.excerpt.trim() || !allowed.excerpt.includes(source.excerpt))
+        throw new Error('Model cited evidence outside the approved excerpts.');
+    }
+  }
+  return output;
+}
+export async function batchSuggestionPlan(root, context, output) {
+  validateBatchSuggestion(context, output);
+  await assertContextFresh(root, context);
+  if (output.status === 'no_change') return null;
+  const operations = output.operations.map(operation => ({ path: operation.path, after: operation.after, reason: operation.reason,
+    sources: operation.sources.map(source => ({ ...source, locator: 'Approved excerpt beginning at line ' + context.sources.find(item => item.path === source.path).startLine })) }));
+  const plan = await propose(root, operations);
+  for (const operation of plan.operations) {
+    const target = context.targets.find(item => item.path === operation.path);
+    if (!target || operation.beforeHash !== target.hash) throw new Error('Context changed during proposal creation: ' + operation.path);
+    for (const source of operation.sources) if (source.hash !== context.sources.find(item => item.path === source.path)?.hash)
+      throw new Error('Context changed during proposal creation: ' + source.path);
+  }
   return { plan, review: review(plan) };
 }
