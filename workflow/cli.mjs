@@ -1,5 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { search, propose, review, apply, rollback } from './knowledge.mjs';
+import { prepareContext, contextDigest, assertContextFresh, suggestionPlan } from './corpus.mjs';
+import { runCodex } from './codex.mjs';
 const [command, ...args] = process.argv.slice(2);
 function arg(name, required = true) {
   const i = args.indexOf(`--${name}`), value = i >= 0 ? args[i + 1] : undefined;
@@ -8,7 +10,18 @@ function arg(name, required = true) {
 }
 const json = async name => JSON.parse(await readFile(arg(name), 'utf8'));
 try {
-  if (command === 'search') console.log(JSON.stringify(await search(arg('vault'), arg('query')), null, 2));
+  if (command === 'context') {
+    const context = await prepareContext(arg('corpus'), arg('query'), arg('target'));
+    await writeFile(arg('out'), JSON.stringify(context, null, 2), { flag: 'wx' });
+    console.log(JSON.stringify({ digest: contextDigest(context), context }, null, 2));
+  } else if (command === 'codex-plan') {
+    const context = await json('context');
+    await assertContextFresh(arg('corpus'), context);
+    const output = await runCodex(context, { approvedDigest: arg('approve-context'), executable: arg('executable', false), model: arg('model', false) });
+    const reviewed = await suggestionPlan(arg('corpus'), context, output);
+    if (reviewed) { await writeFile(arg('out'), JSON.stringify(reviewed.plan, null, 2), { flag: 'wx' }); console.log(JSON.stringify(reviewed.review, null, 2)); }
+    else console.log(JSON.stringify({ status: 'no_change', reason: output.reason }));
+  } else if (command === 'search') console.log(JSON.stringify(await search(arg('vault'), arg('query')), null, 2));
   else if (command === 'plan') {
     const plan = await propose(arg('vault'), await json('operations'));
     await writeFile(arg('out'), JSON.stringify(plan, null, 2), { flag: 'wx' });
@@ -16,5 +29,5 @@ try {
   } else if (command === 'review') console.log(JSON.stringify(review(await json('plan')), null, 2));
   else if (command === 'apply') console.log(JSON.stringify(await apply(arg('vault'), await json('plan'), arg('review'), arg('transaction')), null, 2));
   else if (command === 'rollback') console.log(JSON.stringify(await rollback(arg('vault'), await json('transaction')), null, 2));
-  else console.log('Knowledge Agent offline workflow: search | plan | review | apply | rollback. See workflow/README.md.');
+  else console.log('Knowledge Agent offline workflow: context | codex-plan | search | plan | review | apply | rollback. See workflow/README.md.');
 } catch (error) { console.error(error.message); process.exitCode = 1; }

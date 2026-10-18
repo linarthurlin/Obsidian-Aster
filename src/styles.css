@@ -2,3 +2,10 @@
 .pga-workbench p { max-width: 65ch; line-height: 1.7; }
 .pga-workbench .pga-status { padding: 14px; border-radius: var(--pga-radius); background: var(--background-secondary); color: var(--pga-muted); }
 @media(forced-colors: active){.pga-workbench,.pga-workbench .pga-status{background:Canvas;color:CanvasText;}}
+
+.pga-workbench > input, .pga-workbench > select { display:block; width:100%; max-width:760px; margin-block:12px; }
+.pga-workbench .pga-actions { display:flex; flex-wrap:wrap; gap:10px; margin-block:14px; }
+.pga-workbench .pga-consent { display:flex; align-items:flex-start; gap:10px; margin-block:16px; max-width:80ch; }
+.pga-workbench .pga-code { white-space:pre-wrap; overflow-wrap:anywhere; max-height:420px; overflow:auto; padding:18px; border-radius:var(--pga-radius); background:var(--background-secondary); color:var(--pga-text); user-select:text; }
+.pga-workbench blockquote { border-inline-start:3px solid var(--pga-accent); padding-inline-start:14px; white-space:pre-wrap; }
+.pga-workbench button:focus-visible { outline:2px solid var(--pga-accent); outline-offset:3px; }

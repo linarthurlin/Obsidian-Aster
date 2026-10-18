@@ -1,5 +1,9 @@
 # Knowledge Agent changes
 
+## 0.2.0 — 2026-10-17
+
+Explicit corpus retrieval and context consent, Codex CLI provider, evidence/diff workbench and manually reviewed apply/rollback. Added subprocess and DOM boundary tests. Existing installed CLI passed three synthetic live cases; real Obsidian runtime verification remains pending. No personal-vault deployment or processing.
+
 ## 0.1.0 — independent repository
 
 Separate scope, manifest, build/install/package and CI. See docs/REPOSITORY-SPLIT.md for provenance and migration.

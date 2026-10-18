@@ -1,0 +1,28 @@
+// Opt-in live test: synthetic notes only; never accepts a user-supplied vault path.
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { resolve, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import assert from 'node:assert/strict';
+import { prepareContext, contextDigest, suggestionPlan } from '../workflow/corpus.mjs';
+import { runCodex } from '../workflow/codex.mjs';
+import { apply, rollback, hash } from '../workflow/knowledge.mjs';
+const home=resolve('.local/codex-smoke/'+randomUUID()),corpus=join(home,'corpus');
+await mkdir(corpus,{recursive:true});
+const target='# Filtering\n\nA filter updates a belief.\n';
+const source='# Bayesian filtering\n\nA Bayesian filter combines a prior belief with observations to produce a posterior belief.\n';
+await writeFile(join(corpus,'Note.md'),target,{flag:'wx'});await writeFile(join(corpus,'Source.md'),source,{flag:'wx'});
+const context=await prepareContext(corpus,'Bayesian prior posterior','Note.md');
+console.log('Sending only synthetic target and '+context.sources.length+' source excerpt to installed Codex CLI.');
+const output=await runCodex(context,{approvedDigest:contextDigest(context)});
+const reviewed=await suggestionPlan(corpus,context,output);
+assert(reviewed,'Expected a supported synthetic update');
+assert(output.after.includes('A filter updates a belief.'),'Existing useful content lost');
+assert(/prior/i.test(output.after)&&/posterior/i.test(output.after),'Expected evidence concepts missing');
+assert.equal(hash(await readFile(join(corpus,'Note.md'),'utf8')),hash(target),'Model modified the target');
+const receipt=join(home,'transaction.private.json');
+await apply(corpus,reviewed.plan,reviewed.review.digest,receipt);
+await rollback(corpus,JSON.parse(await readFile(receipt,'utf8')));
+assert.equal(await readFile(join(corpus,'Note.md'),'utf8'),target);
+assert.equal(await readFile(join(corpus,'Source.md'),'utf8'),source);
+const result={status:'passed',synthetic:true,sources:output.sources.length,proposalValidated:true,existingContentPreserved:true,modelDidNotWrite:true,reviewedApplyAndRollback:true};
+await writeFile(join(home,'result.private.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result,null,2));

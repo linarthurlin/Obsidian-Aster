@@ -1,8 +1,8 @@
-# Knowledge Agent 交接
+# Knowledge Agent 交接（0.2.0）
 
-此 repo 接收原本 workflow/knowledge.mjs、CLI 與完整證據／審核／回復測試，新增獨立 manifest id=knowledge-agent 的可載入 workbench 骨架。它目前不連線模型、不索引或修改 Vault，UI 只如實顯示狀態。
+此 repo 已加入限定語料、Codex CLI provider、context 預覽／同意、證據／diff 審核與單筆套用／回復 UI。只使用明確資料夾，外掛不做背景索引或自動整理。現有 CLI 登入由 Codex 自己管理，外掛不儲存 key。
 
-下一步：先決定明確 corpus、provider 與憑證儲存方式；建立搜尋／來源／diff 審核介面，再做檢索品質評估。預設不可掃描全庫或自動寫入；延續現有來源驗證、stale-file preflight、review digest、回復保護。模型信心分數不是正確率。
+先讀 CODEX-CLI.zh-TW.md、ROADMAP.md 與 TESTING.md。下一步優先完成真實 Obsidian 整合測試、跨重啟復原介面及可衡量的檢索評估，而非擴大自動寫入權限。任何個人筆記送出皆需當次 context 同意。
 
 工作區根節點使用 .pga-workbench，CSS 使用共用 --pg-* tokens 並 fallback 到 Obsidian 原生變數；換 Theme 不得影響 Agent 功能。
 

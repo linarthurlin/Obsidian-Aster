@@ -1,7 +1,9 @@
 # Knowledge Agent testing
 
-Run npm ci, npm run check and npm run package independently in this repository. CI repeats checks on Linux and Windows. Installer tests use temporary synthetic vaults and reject linked directories. Only three files for this plugin may be installed; notes, existing data.json and activation lists are preserved.
+`npm run check` validates TypeScript, plugin build, offline CSS, manifests, review engine, installer isolation, scoped retrieval, model output boundaries and subprocess errors/cancellation/timeout/output limits. DOM tests run the actual plugin bundle with mocked Obsidian and model-process APIs; no live model is called by CI.
 
-Offline workflow tests preserve the proposal/review/source/stale-edit/rollback boundary. The plugin lifecycle test verifies an inert load without accessing a vault or provider. No model or automatic ingestion is implemented.
+The workbench test checks that loading filenames does not send content, context must be previewed and explicitly approved, query changes reset approval, stale sources prevent sending, and closing the view cleans its DOM. Lifecycle checks verify no startup scan/model launch. Installer tests preserve both Agent and Companion data.json and reject junctions.
 
-Fresh Obsidian runtime testing of the three split components, plugin-alone/default-theme fallback, unload/popouts and joint visual integration remains pending. Do not infer it from historical monolith screenshots. See HISTORICAL-MONOLITH-TESTING.md.
+Manual live CLI tests on Windows, Codex CLI 0.162.1 with existing ChatGPT authentication, passed three synthetic cases: supported update with exact evidence and preserved content, source-instruction injection, and insufficient evidence returning no_change. The supported update was explicitly applied and rolled back only in a synthetic corpus; the model itself left notes unchanged. These are small smoke cases, not a statistical quality or adversarial robustness benchmark.
+
+No real personal-vault content was used. Fresh actual Obsidian runtime testing, cancellation while a view closes, Theme-alone/default-theme integration, accessibility, journal history across restarts and larger corpus quality evaluation remain pending. Historical monolith screenshots are not proof of this increment.

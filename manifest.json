@@ -1,9 +1,9 @@
 {
   "id": "knowledge-agent",
   "name": "Knowledge Agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "minAppVersion": "1.6.0",
-  "description": "Independent local-first knowledge review workbench. Initial offline workflow foundation; no model connection or automatic edits.",
+  "description": "Scoped local retrieval, opt-in Codex CLI proposals, evidence review and explicit updates with rollback.",
   "author": "linarthurlin",
   "authorUrl": "https://github.com/linarthurlin",
   "isDesktopOnly": true

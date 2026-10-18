@@ -1,6 +1,6 @@
-# Offline knowledge review workflow
+# Knowledge Agent workflow
 
-This is an opt-in proposal/review boundary for an agent, not an AI model or automatic organizer. It makes no network requests and runs no background jobs. The Obsidian plugin does not call it automatically. Use an explicitly selected corpus, first with synthetic notes.
+The original offline review engine remains model-free. The optional `codex.mjs` adapter and CLI `codex-plan` command now add explicitly approved Codex inference; they never apply model output automatically. See [Codex integration and boundaries](../docs/CODEX-CLI.zh-TW.md). Model requests transmit the approved context to the CLI model service. Keep contexts, plans and receipts private.
 
 An agent can search for existing material, then supply an operations JSON array. Each operation updates an **existing** Markdown file and must include a reason and at least one exact excerpt from a local source. No create, rename, move or delete operations ship in this version.
 
