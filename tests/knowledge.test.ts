@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, mkdir, readFile, writeFile, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, symlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { propose, review, apply, rollback, safePath, hash, diff } from '../workflow/knowledge.mjs';
+import { propose, review, apply, rollback, rollbackTransactionJournal, inspectTransactionJournal, recoverTransactionJournal, safePath, hash, diff } from '../workflow/knowledge.mjs';
 async function fixture() {
   const home = await mkdtemp(join(tmpdir(), 'glass-workflow-'));
   const vault = join(home, 'vault'); await mkdir(vault);
@@ -20,8 +20,9 @@ describe('offline review boundary', () => {
     const receipt = join(f.home, 'transaction.json');
     expect(await apply(f.vault, plan, approved.digest, receipt)).toEqual({ status: 'applied', updated: 1 });
     expect(await readFile(join(f.vault, 'Note.md'), 'utf8')).toBe(f.operations[0].after);
-    await rollback(f.vault, JSON.parse(await readFile(receipt, 'utf8')));
+    await rollbackTransactionJournal(f.vault, receipt);
     expect(await readFile(join(f.vault, 'Note.md'), 'utf8')).toBe(original);
+    expect(JSON.parse(await readFile(receipt, 'utf8')).status).toBe('rolled-back');
   });
   it('rejects fabricated evidence, path traversal and mismatched review digests', async () => {
     const f = await fixture();
@@ -71,5 +72,70 @@ describe('offline review boundary', () => {
     const linked = join(f.home, 'alias');
     await symlink(f.vault, linked, process.platform === 'win32' ? 'junction' : 'dir');
     await expect(apply(f.vault, plan, review(plan).digest, join(linked, 'receipt.json'))).rejects.toThrow('outside');
+  });
+  it('inspects and resumes a pending journal by restoring only known after-state targets', async () => {
+    const f = await fixture();
+    const secondBefore = '# Second original\n';
+    const secondAfter = '# Second updated\n';
+    await writeFile(join(f.vault, 'Second.md'), secondBefore);
+    const plan = await propose(f.vault, [
+      f.operations[0],
+      { ...f.operations[0], path: 'Second.md', before: undefined, after: secondAfter },
+    ]);
+    const receipt = join(f.home, 'pending.json');
+    await writeFile(receipt, JSON.stringify({
+      status: 'pending', root: await realpath(f.vault), digest: review(plan).digest, plan,
+    }));
+    await writeFile(join(f.vault, 'Note.md'), plan.operations[0].after);
+
+    expect((await inspectTransactionJournal(f.vault, receipt)).targets).toEqual([
+      { path: 'Note.md', state: 'after' },
+      { path: 'Second.md', state: 'before' },
+    ]);
+    await expect(recoverTransactionJournal(f.vault, receipt)).resolves.toEqual({
+      status: 'rolled-back', restored: 1, alreadyBefore: 1,
+    });
+    expect(await readFile(join(f.vault, 'Note.md'), 'utf8')).toBe(plan.operations[0].before);
+    expect(await readFile(join(f.vault, 'Second.md'), 'utf8')).toBe(secondBefore);
+    expect(JSON.parse(await readFile(receipt, 'utf8')).status).toBe('rolled-back');
+    await expect(recoverTransactionJournal(f.vault, receipt)).rejects.toThrow('not in a recoverable state');
+  });
+  it('blocks pending recovery before any write when one target contains an unknown edit', async () => {
+    const f = await fixture();
+    await writeFile(join(f.vault, 'Second.md'), '# Second original\n');
+    const plan = await propose(f.vault, [
+      f.operations[0],
+      { ...f.operations[0], path: 'Second.md', before: undefined, after: '# Second updated\n' },
+    ]);
+    const receipt = join(f.home, 'pending.json');
+    await writeFile(receipt, JSON.stringify({
+      status: 'pending', root: await realpath(f.vault), digest: review(plan).digest, plan,
+    }));
+    await writeFile(join(f.vault, 'Note.md'), plan.operations[0].after);
+    await writeFile(join(f.vault, 'Second.md'), '# A later human edit\n');
+
+    await expect(recoverTransactionJournal(f.vault, receipt)).rejects.toThrow('Second.md');
+    expect(await readFile(join(f.vault, 'Note.md'), 'utf8')).toBe(plan.operations[0].after);
+    expect(await readFile(join(f.vault, 'Second.md'), 'utf8')).toBe('# A later human edit\n');
+    expect(JSON.parse(await readFile(receipt, 'utf8')).status).toBe('pending');
+  });
+  it('resumes a recovering journal idempotently after a restart', async () => {
+    const f = await fixture();
+    const plan = await propose(f.vault, f.operations);
+    const receipt = join(f.home, 'recovering.json');
+    await writeFile(receipt, JSON.stringify({
+      status: 'recovering',
+      root: await realpath(f.vault),
+      digest: review(plan).digest,
+      plan,
+      recovery: { action: 'rollback', startedAt: '2026-10-18T00:00:00.000Z', restored: ['Note.md'] },
+    }));
+
+    await expect(recoverTransactionJournal(f.vault, receipt)).resolves.toEqual({
+      status: 'rolled-back', restored: 0, alreadyBefore: 1,
+    });
+    expect((await inspectTransactionJournal(f.vault, receipt)).recovery).toMatchObject({
+      action: 'rollback', restoredCount: 1,
+    });
   });
 });

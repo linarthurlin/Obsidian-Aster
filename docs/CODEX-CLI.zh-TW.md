@@ -11,7 +11,7 @@
 5. 本機核對回傳 schema、來源路徑、原文摘錄及檔案 hash，然後顯示 diff 和證據。模型無法指定另一個更新目標，也不直接執行寫入。
 6. 閱讀差異與證據，另勾選已審核後按 Apply。僅更新該現有 Markdown。Rollback 拒絕覆蓋後續人工修改。
 
-交易紀錄含完整 before/after，保存在使用者 home 下 `.knowledge-agent/transactions/*.private.json`（舊路徑保留以相容既有安裝資料），不在 Vault 內；請當作私密復原資料。現在的介面提供當次更新的回復按鈕，跨重啟的交易歷史 UI 尚待完成，可先用 CLI 對保存的紀錄回復。
+交易紀錄含完整 before/after，保存在使用者 home 下 .knowledge-agent/transactions/*.private.json（舊路徑保留以相容既有安裝資料），不在 Vault 內；請當作私密復原資料。現在的介面提供當次更新的回復按鈕並把回復狀態寫回 journal，跨重啟的交易歷史 UI 尚待完成。CLI 可先檢視和復原保存的紀錄：inspect --vault ... --transaction ... 顯示狀態與目標 before/after/conflict/missing；recover --vault ... --transaction ... 僅在所有目標仍符合已知雜湊時回復 pending journal。
 
 ## CLI 操作
 

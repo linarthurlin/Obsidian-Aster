@@ -21,11 +21,15 @@ node workflow/cli.mjs plan --vault /selected/corpus --operations operations.json
 node workflow/cli.mjs review --plan plan.json
 # Read the diffs and evidence. Supply the digest of the exact reviewed plan to apply.
 node workflow/cli.mjs apply --vault /selected/corpus --plan plan.json --review <digest> --transaction /outside/corpus/transaction.json
+# Inspect a saved journal and classify targets as before, after, conflict or missing.
+node workflow/cli.mjs inspect --vault /selected/corpus --transaction /outside/corpus/transaction.json
+# Restore a pending apply only if every target still matches a known before/after hash.
+node workflow/cli.mjs recover --vault /selected/corpus --transaction /outside/corpus/transaction.json
 node workflow/cli.mjs rollback --vault /selected/corpus --transaction /outside/corpus/transaction.json
 ```
 
-Planning is read-only. Applying requires an exact review digest, unchanged targets and unchanged source hashes. Transactions are journaled outside the selected vault before writes. Rollback refuses edited targets rather than overwriting later human work. Existing history files cannot be overwritten. Paths with hidden components, traversal and symlinks/junctions are rejected.
+Planning is read-only. Applying requires an exact review digest, unchanged targets and unchanged source hashes. Transactions are journaled outside the selected vault before writes. The inspect command reports each target as before, after, conflict or missing. The recover command rolls back an interrupted apply only after every target matches a known hash; if any target is missing or contains later edits, it stops before writing anything. Rollback refuses edited targets rather than overwriting later human work and records its terminal state in the journal. Existing history files cannot be overwritten. Paths with hidden components, traversal and symlinks/junctions are rejected.
 
 The excerpt check proves that quoted text exists, **not** that it logically supports an agent's claims. Human review is still required for reasoning, formula correctness and content preservation. A model confidence score is never treated as a probability of correctness. Review digests are integrity checks, not authentication or a replacement for user authorization.
 
-Source excerpts and full before/after text make plans and receipts sensitive local artifacts. Do not publish them in the public repository. Keep them in an ignored local workspace folder. A crash can leave a `pending` journal; inspect its before/after hashes manually before recovery. This engine does not claim filesystem-wide transactions or immunity to malicious concurrent filesystem changes.
+Source excerpts and full before/after text make plans and receipts sensitive local artifacts. Do not publish them in the public repository. Keep them in an ignored local workspace folder. A crash can leave a pending or recovering journal; inspect it, then run the explicit recover command to restore known after-state targets. Recovery is serialized within one process. This engine does not claim filesystem-wide transactions, cross-process locking, power-loss durability or immunity to malicious concurrent filesystem changes.

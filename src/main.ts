@@ -2,12 +2,12 @@ import { FuzzySuggestModal, Plugin, ItemView, PluginSettingTab, Setting, Markdow
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { normalizeSettings, type Settings } from './settings';
 import { ChatView, ASTER_CHAT_VIEW } from './chat-view';
 import { listNotes, visiblePath, resolveScope, prepareContext, contextDigest, assertContextFresh, suggestionPlan, type Context, type Reviewed } from '../workflow/corpus.mjs';
 import { runCodex } from '../workflow/codex.mjs';
-import { apply, rollback } from '../workflow/knowledge.mjs';
+import { apply, rollbackTransactionJournal } from '../workflow/knowledge.mjs';
 const VIEW = 'knowledge-agent-workbench';
 class CorpusFolderPicker extends FuzzySuggestModal<TFolder> {
   constructor(app: App, private folders: TFolder[], private onChooseFolder: (folder: TFolder) => void) {
@@ -123,7 +123,7 @@ class Workbench extends ItemView {
         };
         rollbackButton.onclick = async () => {
           rollbackButton.disabled = true; locked(true);
-          try { await rollback(corpus, JSON.parse(await readFile(receipt, 'utf8'))); status.setText('Update rolled back. Later human edits are never overwritten.'); }
+          try { await rollbackTransactionJournal(corpus, receipt); status.setText('Update rolled back. Later human edits are never overwritten.'); }
           catch (error) { report(error); rollbackButton.disabled = false; } finally { if (!this.closed) locked(false); }
         };
         status.setText('Proposal validated locally. No notes changed; read the diff and evidence.');
