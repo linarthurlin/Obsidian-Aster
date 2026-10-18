@@ -29,6 +29,24 @@ class ScopedNotePicker extends FuzzySuggestModal<string> {
   getItemText(path: string) { return path; }
   onChooseItem(path: string) { this.onChoosePath(path); }
 }
+class ScopedFolderPicker extends FuzzySuggestModal<string> {
+  constructor(app: App, private paths: string[], private corpusFolder: string, private onChoosePath: (path: string) => void) {
+    super(app);
+    this.setPlaceholder('Choose a folder inside the configured Aster Corpus');
+    this.setInstructions([{ command: '↑↓', purpose: 'navigate' }, { command: '↵', purpose: 'preview folder context' }]);
+  }
+  getItems() { return this.paths; }
+  getItemText(path: string) { return path ? `${this.corpusFolder}/${path}` : `${this.corpusFolder} (Corpus root)`; }
+  onChooseItem(path: string) { this.onChoosePath(path); }
+}
+function scopedFolderPaths(paths: string[]) {
+  const folders = new Set<string>();
+  for (const path of paths) {
+    const parts = path.split('/');
+    for (let index = 1; index < parts.length; index++) folders.add(parts.slice(0, index).join('/'));
+  }
+  return ['', ...Array.from(folders).sort((a, b) => a.localeCompare(b))];
+}
 function titleFrom(text: string) {
   const first = text.replace(/\s+/g, ' ').trim();
   return first.length > 52 ? first.slice(0, 49) + '…' : first || 'New chat';
@@ -45,7 +63,7 @@ export class ChatView extends ItemView {
   private chatStatuses = new Map<string, string>();
   private models: ModelChoice[] = [];
   private skills: AsterSkill[] = [];
-  private pendingContexts = new Map<string, { sourcePath: string; content: string }>();
+  private pendingContexts = new Map<string, { sourcePath: string; content: string; kind: 'note' | 'folder'; files: string[] }>();
   private histories = new Map<string, ChatMessage[]>();
   private readonly activeSends = new Set<Promise<void>>();
   private clearingChats = false;
@@ -80,6 +98,13 @@ export class ChatView extends ItemView {
     if (this.plugin.settings.activeChatId === threadId) {
       (this.contentEl.querySelector('.pga-chat-status') as HTMLElement | null)?.setText(message);
     }
+  }
+  private async reportContextError(error: unknown, fallback: string) {
+    const message = error instanceof Error ? error.message : fallback;
+    const thread = this.thread();
+    if (thread) this.setChatStatus(thread.id, message);
+    else this.statusText = message;
+    await this.render();
   }
   private async getProvider() {
     if (this.provider) return this.provider;
@@ -203,14 +228,37 @@ export class ChatView extends ItemView {
       if (!paths.length) throw new Error('The configured Corpus has no visible Markdown notes. Nothing was read or sent.');
       new ScopedNotePicker(this.app, paths, path => { void this.previewScopedNote(path); }).open();
     } catch (error) {
-      this.statusText = error instanceof Error ? error.message : 'Could not list notes in the configured Corpus.';
+      await this.reportContextError(error, 'Could not list notes in the configured Corpus.');
+    }
+  }
+  private async openScopedFolderPicker() {
+    if (this.closed || this.clearingChats) return;
+    const thread = this.thread();
+    if (thread && this.pendingContexts.has(thread.id)) {
+      this.setChatStatus(thread.id, 'Add or discard the current context preview before choosing another source.');
+      return;
+    }
+    if (!this.plugin.settings.corpusFolder) {
+      this.statusText = 'Choose a visible Corpus folder in Aster settings before selecting folder context.';
       await this.render();
+      return;
+    }
+    try {
+      const root = await this.plugin.corpus();
+      const paths = await listNotes(root);
+      if (!paths.length) throw new Error('The configured Corpus has no visible Markdown notes. Nothing was read or sent.');
+      new ScopedFolderPicker(this.app, scopedFolderPaths(paths), this.plugin.settings.corpusFolder,
+        path => { void this.previewScopedFolder(path); }).open();
+    } catch (error) {
+      await this.reportContextError(error, 'Could not list folders in the configured Corpus.');
     }
   }
   private async previewScopedNote(relativePath: string) {
     if (this.closed || this.clearingChats) return;
     try {
       if (!this.plugin.settings.corpusFolder) throw new Error('Choose a visible Corpus folder before selecting context.');
+      const activeThread = this.thread();
+      if (activeThread && this.pendingContexts.has(activeThread.id)) throw new Error('Add or discard the current context preview before choosing another source.');
       const root = await this.plugin.corpus();
       const paths = await listNotes(root);
       if (!paths.includes(relativePath)) throw new Error('The selected note is no longer inside the configured Corpus. Nothing was read.');
@@ -227,12 +275,50 @@ export class ChatView extends ItemView {
       let thread = this.thread();
       if (!thread) { await this.newChat(); thread = this.thread(); }
       if (!thread) throw new Error('Aster could not create a Chat for the selected note.');
-      this.pendingContexts.set(thread.id, { sourcePath: vaultPath, content });
+      this.pendingContexts.set(thread.id, { sourcePath: vaultPath, content, kind: 'note', files: [vaultPath] });
       this.setChatStatus(thread.id, `Previewing ${vaultPath}. Nothing is sent until you add the exact text to the draft and press Send.`);
       await this.render();
     } catch (error) {
-      this.statusText = error instanceof Error ? error.message : 'Could not preview the selected Corpus note.';
+      await this.reportContextError(error, 'Could not preview the selected Corpus note.');
+    }
+  }
+  private async previewScopedFolder(relativeFolder: string) {
+    if (this.closed || this.clearingChats) return;
+    try {
+      if (!this.plugin.settings.corpusFolder) throw new Error('Choose a visible Corpus folder before selecting context.');
+      const activeThread = this.thread();
+      if (activeThread && this.pendingContexts.has(activeThread.id)) throw new Error('Add or discard the current context preview before choosing another source.');
+      const root = await this.plugin.corpus();
+      const paths = await listNotes(root);
+      if (!scopedFolderPaths(paths).includes(relativeFolder)) throw new Error('The selected folder is no longer inside the configured Corpus. Nothing was read.');
+      const notePaths = paths.filter(path => !relativeFolder || path.startsWith(relativeFolder + '/'));
+      if (!notePaths.length) throw new Error('The selected folder has no visible Markdown notes. Nothing was read or sent.');
+      if (notePaths.length > LIMITS.sources) throw new Error(`The selected folder contains ${notePaths.length} notes; Aster previews at most ${LIMITS.sources} at once. Choose a narrower folder or attach notes individually.`);
+      const blocks: string[] = [], filePaths: string[] = [];
+      for (const relativePath of notePaths) {
+        const absolute = await safePath(root, relativePath);
+        const stat = await lstat(absolute);
+        if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`The selected Corpus source is not a plain Markdown file: ${relativePath}`);
+        if (stat.size > LIMITS.bytes) throw new Error(`A selected note exceeds the ${LIMITS.bytes.toLocaleString()}-byte read limit: ${relativePath}. Nothing was added.`);
+        const vaultPath = `${this.plugin.settings.corpusFolder}/${relativePath}`;
+        const file = this.app.vault.getAbstractFileByPath(vaultPath);
+        if (!(file instanceof TFile) || file.path !== vaultPath) throw new Error(`Obsidian could not resolve a selected note inside the Corpus: ${relativePath}`);
+        const content = await this.app.vault.cachedRead(file);
+        const block = `Source note: ${vaultPath}\n\n${content}`;
+        const combined = [...blocks, block].join('\n\n---\n\n');
+        if (combined.length > 24_000) throw new Error('The selected folder context exceeds Aster’s 24,000-character limit. Nothing was truncated or added. Choose a narrower folder or attach notes individually.');
+        blocks.push(block);
+        filePaths.push(vaultPath);
+      }
+      const folderPath = `${this.plugin.settings.corpusFolder}${relativeFolder ? '/' + relativeFolder : ''}`;
+      let thread = this.thread();
+      if (!thread) { await this.newChat(); thread = this.thread(); }
+      if (!thread) throw new Error('Aster could not create a Chat for the selected folder.');
+      this.pendingContexts.set(thread.id, { sourcePath: folderPath, content: blocks.join('\n\n---\n\n'), kind: 'folder', files: filePaths });
+      this.setChatStatus(thread.id, `Previewing ${filePaths.length} notes from ${folderPath}. Nothing is sent until you add the exact snapshots to the draft and press Send.`);
       await this.render();
+    } catch (error) {
+      await this.reportContextError(error, 'Could not preview the selected Corpus folder.');
     }
   }
   private async persistProject(nameValue: string, instructionsValue: string, existingId = '') {
@@ -311,7 +397,7 @@ export class ChatView extends ItemView {
     root.empty(); root.addClass('pga-chat');
     const header = root.createDiv({ cls: 'pga-chat-header' });
     header.createEl('h2', { text: 'Aster Chat' });
-    header.createEl('p', { text: 'Chat through your local Codex CLI. Aster stores transcripts and Skills under your local user profile, and Codex keeps its own persistent session. Projects group chats and provide visible instruction snapshots for new threads. Quick Ask places only the selected passage in an editable draft. Skills expand only when selected from the slash menu; their text is visible and editable before sending. Vault notes are excluded unless you explicitly preview one from the configured Corpus and add its text to the draft.' });
+    header.createEl('p', { text: 'Chat through your local Codex CLI. Aster stores transcripts and Skills under your local user profile, and Codex keeps its own persistent session. Projects group chats and provide visible instruction snapshots for new threads. Quick Ask places only the selected passage in an editable draft. Skills expand only when selected from the slash menu; their text is visible and editable before sending. Vault notes are excluded unless you explicitly preview a note or a bounded folder from the configured Corpus and add its text to the draft.' });
     const layout = root.createDiv({ cls: 'pga-chat-layout' });
     const sidebar = layout.createDiv({ cls: 'pga-chat-sidebar' });
     const sidebarActions = sidebar.createDiv({ cls: 'pga-chat-sidebar-actions' });
@@ -546,8 +632,8 @@ export class ChatView extends ItemView {
     const pendingContext = thread ? this.pendingContexts.get(thread.id) : undefined;
     if (pendingContext && thread) {
       const preview = panel.createDiv({ cls: 'pga-chat-context-preview' });
-      preview.createEl('strong', { text: 'Pending note context · ' + pendingContext.sourcePath });
-      preview.createEl('p', { text: `${pendingContext.content.length.toLocaleString()} characters. This exact snapshot is not sent until you add it to the editable draft and press Send.` });
+      preview.createEl('strong', { text: `Pending ${pendingContext.kind} context · ${pendingContext.sourcePath}` });
+      preview.createEl('p', { text: `${pendingContext.files.length} note${pendingContext.files.length === 1 ? '' : 's'} · ${pendingContext.content.length.toLocaleString()} characters. This exact snapshot is not sent until you add it to the editable draft and press Send.` });
       const details = preview.createEl('details');
       details.createEl('summary', { text: 'Review full note snapshot' });
       details.createEl('pre', { text: pendingContext.content });
@@ -575,7 +661,7 @@ export class ChatView extends ItemView {
     if (!thread) {
       const empty = messages.createDiv({ cls: 'pga-chat-empty' });
       empty.createEl('h3', { text: 'Start a conversation' });
-      empty.createEl('p', { text: 'Your message and this chat history go to the selected Codex model. Vault notes are excluded unless you explicitly preview one and add it to the draft.' });
+      empty.createEl('p', { text: 'Your message and this chat history go to the selected Codex model. Vault notes are excluded unless you explicitly preview notes and add them to the draft.' });
     } else if (!history.length) {
       const empty = messages.createDiv({ cls: 'pga-chat-empty' });
       empty.createEl('h3', { text: 'What would you like to work on?' });
@@ -592,8 +678,12 @@ export class ChatView extends ItemView {
     const composerActions = composer.createDiv({ cls: 'pga-chat-composer-actions' });
     const addNoteButton = composerActions.createEl('button', { text: '＋ Add note context' });
     addNoteButton.setAttribute('aria-label', 'Choose a note in the configured Corpus to preview as context');
-    addNoteButton.disabled = this.clearingChats;
+    addNoteButton.disabled = this.clearingChats || !!pendingContext;
     addNoteButton.onclick = () => { void this.openScopedNotePicker(); };
+    const addFolderButton = composerActions.createEl('button', { text: '＋ Add folder context' });
+    addFolderButton.setAttribute('aria-label', 'Choose a folder in the configured Corpus to preview as context');
+    addFolderButton.disabled = this.clearingChats || !!pendingContext;
+    addFolderButton.onclick = () => { void this.openScopedFolderPicker(); };
     const sendButton = composerActions.createEl('button', { text: 'Send' });
     const cancelButton = composerActions.createEl('button', { text: 'Cancel' });
     let slashMatches: ReturnType<typeof getChatCommandMatches> = [];

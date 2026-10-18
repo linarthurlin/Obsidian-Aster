@@ -3,7 +3,7 @@ import { PassThrough, Writable } from 'node:stream';
 import { it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { createRequire } from 'node:module';
-import { mkdir, mkdtemp, readFile, rmdir, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { runInNewContext } from 'node:vm';
@@ -73,13 +73,24 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
   const testHome = await mkdtemp(join(tmpdir(), 'aster-chat-view-test-'));
   const dom = new JSDOM('<main></main>'), doc = dom.window.document;
   const factories = new Map<string, any>(), commands = new Map<string, any>(), calls: string[] = [], fake = fakeCodex();
-  let activeMarkdownView: any = null, currentChatView: any = null, activePlugin: any = null, latestNotePicker: any = null;
+  let activeMarkdownView: any = null, currentChatView: any = null, activePlugin: any = null, latestNotePicker: any = null, settingsTab: any = null;
+  const settingsActions = new Map<string, () => void>();
   const vaultReads: string[] = [];
   const syntheticVault = join(testHome, 'SyntheticVault');
   await mkdir(join(syntheticVault, 'ResearchScope'), { recursive: true });
   await mkdir(join(syntheticVault, 'Elsewhere'), { recursive: true });
   await writeFile(join(syntheticVault, 'ResearchScope', 'Scoped.md'), '# Scoped synthetic note\n\nOnly this explicitly selected fixture may enter the draft.');
   await writeFile(join(syntheticVault, 'Elsewhere', 'Unlisted.md'), 'This note must never be listed or read.');
+  const groupedNotes = ['ResearchScope/Group/One.md', 'ResearchScope/Group/Two.md'];
+  const largeFolderNotes = Array.from({ length: 7 }, (_unused, index) => `ResearchScope/Large/Note-${index + 1}.md`);
+  const longFolderNotes = ['ResearchScope/Long/First.md', 'ResearchScope/Long/Second.md'];
+  for (const path of [...groupedNotes, ...largeFolderNotes, ...longFolderNotes]) {
+    const absolute = join(syntheticVault, path);
+    await mkdir(join(absolute, '..'), { recursive: true });
+    const body = longFolderNotes.includes(path) ? 'x'.repeat(13_000) : `Synthetic content for ${path}.`;
+    await writeFile(absolute, `# ${path}\n\n${body}`);
+  }
+  const allowedVaultNotes = new Set(['ResearchScope/Scoped.md', ...groupedNotes, ...largeFolderNotes, ...longFolderNotes]);
   let view: any, plugin: any, chatId = '', historyPath = '';
   let blockedRenameTarget = '';
   let signalRenameStarted!: () => void, releaseBlockedRename!: () => void;
@@ -102,6 +113,7 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
   proto.createDiv = function(options: any = {}) { return this.createEl('div', options); };
   class MarkdownView {}
   class TFile { constructor(public path: string) {} }
+  class TFolder { constructor(public path: string) {} }
   class FuzzySuggestModal {
     items: string[] = [];
     opened = false;
@@ -110,6 +122,26 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     setInstructions(_instructions: any[]) {}
     getItems() { return this.items; }
     open() { this.opened = true; }
+  }
+  class Setting {
+    constructor(_root: HTMLElement) {}
+    setName(_name: string) { return this; }
+    setDesc(_description: string) { return this; }
+    addText(callback: (component: any) => void) {
+      const component: any = { setPlaceholder: () => component, setValue: () => component, onChange: () => component };
+      callback(component); return this;
+    }
+    addDropdown(callback: (component: any) => void) {
+      const component: any = { addOption: () => component, setValue: () => component, onChange: () => component };
+      callback(component); return this;
+    }
+    addButton(callback: (component: any) => void) {
+      const component: any = {
+        label: '', setButtonText(label: string) { this.label = label; return this; },
+        setTooltip() { return this; }, onClick(handler: () => void) { settingsActions.set(this.label, handler); return this; },
+      };
+      callback(component); return this;
+    }
   }
   class Plugin {
     app = { workspace: {
@@ -121,7 +153,7 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     async loadData() { return null; }
     async saveData(data: any) { this.saved = data; }
     saved: any;
-    addSettingTab() {}
+    addSettingTab(tab: any) { settingsTab = tab; }
     registerView(id: string, factory: any) { factories.set(id, factory); }
     addCommand(command: any) { calls.push(command.id); commands.set(command.id, command); }
   }
@@ -130,14 +162,14 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     contentEl = doc.createElement('div');
     constructor() { this.app = activePlugin?.app ?? { workspace: {} }; doc.querySelector('main')!.appendChild(this.contentEl); }
   }
-  class PluginSettingTab { constructor() {} }
+  class PluginSettingTab { app: any; containerEl = doc.createElement('div'); constructor(app: any) { this.app = app; } }
   const module = { exports: {} };
   try {
     runInNewContext(await readFile('dist/plugin/main.js', 'utf8'), {
       module, exports: module.exports, process, Buffer, AbortController, setTimeout, clearTimeout,
       prompt: () => 'Project review', confirm: () => true,
       require: (name: string) => {
-        if (name === 'obsidian') return { Plugin, ItemView, PluginSettingTab, MarkdownView, FuzzySuggestModal, TFile, Notice: class { constructor(_message: string) {} }, MarkdownRenderer: {
+        if (name === 'obsidian') return { Plugin, ItemView, PluginSettingTab, Setting, MarkdownView, FuzzySuggestModal, TFile, TFolder, Notice: class { constructor(_message: string) {} }, MarkdownRenderer: {
           renderMarkdown: async (markdown: string, body: HTMLElement) => { body.textContent = markdown; },
         } };
         if (name === 'node:child_process') return { spawn: fake.spawn };
@@ -158,12 +190,23 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     });
     const Agent = (module.exports as any).default; plugin = new Agent(); activePlugin = plugin;
     await plugin.onload();
-    plugin.settings.corpusFolder = 'ResearchScope';
+    plugin.settings.corpusFolder = '';
     plugin.app.vault = {
       adapter: { getBasePath: () => syntheticVault },
-      getAbstractFileByPath: (path: string) => path === 'ResearchScope/Scoped.md' ? new TFile(path) : null,
+      getAllFolders: () => [new TFolder(''), new TFolder('Elsewhere'), new TFolder('ResearchScope'), new TFolder('.private')],
+      getAbstractFileByPath: (path: string) => allowedVaultNotes.has(path) ? new TFile(path) : null,
       cachedRead: async (file: TFile) => { vaultReads.push(file.path); return readFile(join(syntheticVault, file.path), 'utf8'); },
     };
+    settingsTab.display();
+    settingsActions.get('Choose folder…')?.();
+    const folderPickerDeadline = Date.now() + 3000;
+    while (!latestNotePicker?.opened && Date.now() < folderPickerDeadline) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(latestNotePicker?.getItems().map((folder: TFolder) => folder.path)).toEqual(['Elsewhere', 'ResearchScope']);
+    latestNotePicker.onChooseItem(latestNotePicker.getItems()[1]);
+    const corpusSaveDeadline = Date.now() + 3000;
+    while (plugin.saved?.corpusFolder !== 'ResearchScope' && Date.now() < corpusSaveDeadline) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(plugin.settings.corpusFolder).toBe('ResearchScope');
+    expect(vaultReads).toEqual([]);
     view = factories.get('aster-chat')({}); currentChatView = view;
     await view.onOpen();
     expect(fake.children).toHaveLength(0);
@@ -307,7 +350,8 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     (doc.querySelector('[aria-label="Choose a note in the configured Corpus to preview as context"]') as HTMLButtonElement).onclick?.(new dom.window.Event('click'));
     const pickerDeadline = Date.now() + 3000;
     while (!latestNotePicker?.opened && Date.now() < pickerDeadline) await new Promise(resolve => setTimeout(resolve, 5));
-    expect(latestNotePicker?.getItems()).toEqual(['Scoped.md']);
+    expect(latestNotePicker?.getItems()).toEqual([...groupedNotes, ...largeFolderNotes, ...longFolderNotes, 'ResearchScope/Scoped.md']
+      .map(path => path.replace('ResearchScope/', '')).sort());
     expect(vaultReads).toEqual([]);
     latestNotePicker.onChooseItem('Scoped.md');
     const previewDeadline = Date.now() + 3000;
@@ -321,6 +365,48 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     expect(doc.querySelector('.pga-chat-context-preview')).toBeNull();
     expect(scopedDraft.value).toContain('Note context: ResearchScope/Scoped.md');
     expect(scopedDraft.value).toContain('Only this explicitly selected fixture may enter the draft.');
+    expect(fake.children).toHaveLength(providerCountBeforeAttach);
+
+    const folderButtonSelector = '[aria-label="Choose a folder in the configured Corpus to preview as context"]';
+    latestNotePicker = null;
+    (doc.querySelector(folderButtonSelector) as HTMLButtonElement).onclick?.(new dom.window.Event('click'));
+    const folderListDeadline = Date.now() + 3000;
+    while (!latestNotePicker?.opened && Date.now() < folderListDeadline) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(latestNotePicker?.getItems()).toEqual(['', 'Group', 'Large', 'Long']);
+    const readsBeforeLargeFolder = [...vaultReads];
+    latestNotePicker.onChooseItem('Large');
+    const largeFolderDeadline = Date.now() + 3000;
+    while (!doc.querySelector('.pga-chat-status')?.textContent?.includes('at most 6') && Date.now() < largeFolderDeadline) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(doc.querySelector('.pga-chat-context-preview')).toBeNull();
+    expect(vaultReads).toEqual(readsBeforeLargeFolder);
+
+    latestNotePicker = null;
+    (doc.querySelector(folderButtonSelector) as HTMLButtonElement).onclick?.(new dom.window.Event('click'));
+    const longFolderListDeadline = Date.now() + 3000;
+    while (!latestNotePicker?.opened && Date.now() < longFolderListDeadline) await new Promise(resolve => setTimeout(resolve, 5));
+    latestNotePicker.onChooseItem('Long');
+    const longFolderDeadline = Date.now() + 3000;
+    while (!doc.querySelector('.pga-chat-status')?.textContent?.includes('24,000-character limit') && Date.now() < longFolderDeadline) await new Promise(resolve => setTimeout(resolve, 5));
+    expect(doc.querySelector('.pga-chat-context-preview')).toBeNull();
+    expect(vaultReads.slice(-2)).toEqual(longFolderNotes);
+    expect(fake.children).toHaveLength(providerCountBeforeAttach);
+
+    latestNotePicker = null;
+    (doc.querySelector(folderButtonSelector) as HTMLButtonElement).onclick?.(new dom.window.Event('click'));
+    const secondFolderListDeadline = Date.now() + 3000;
+    while (!latestNotePicker?.opened && Date.now() < secondFolderListDeadline) await new Promise(resolve => setTimeout(resolve, 5));
+    latestNotePicker.onChooseItem('Group');
+    const groupedPreviewDeadline = Date.now() + 3000;
+    while (!doc.querySelector('.pga-chat-context-preview') && Date.now() < groupedPreviewDeadline) await new Promise(resolve => setTimeout(resolve, 5));
+    const groupedPreview = doc.querySelector('.pga-chat-context-preview') as HTMLElement;
+    expect(groupedPreview.textContent).toContain('Synthetic content for ResearchScope/Group/One.md.');
+    expect(groupedPreview.textContent).toContain('Synthetic content for ResearchScope/Group/Two.md.');
+    expect(vaultReads.slice(-2).sort()).toEqual(groupedNotes.sort());
+    const groupedDraft = doc.querySelector('[aria-label="Message Aster"]') as HTMLTextAreaElement;
+    await (Array.from(groupedPreview.querySelectorAll('button')).find(button => button.textContent === 'Add context to draft') as HTMLButtonElement).onclick?.(new dom.window.Event('click'));
+    expect(groupedDraft.value).toContain('Note context: ResearchScope/Group');
+    expect(groupedDraft.value).toContain('Synthetic content for ResearchScope/Group/One.md.');
+    expect(groupedDraft.value).toContain('Synthetic content for ResearchScope/Group/Two.md.');
     expect(fake.children).toHaveLength(providerCountBeforeAttach);
 
     const addProject = Array.from(doc.querySelectorAll('button')).find(button => button.textContent === '＋ Project') as HTMLButtonElement;
@@ -358,11 +444,7 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     await rmdir(join(testHome, '.aster', 'skills', 'meeting-review')).catch(() => {});
     await rmdir(join(testHome, '.aster', 'skills')).catch(() => {});
     await rmdir(join(testHome, '.aster')).catch(() => {});
-    await unlink(join(syntheticVault, 'ResearchScope', 'Scoped.md')).catch(() => {});
-    await unlink(join(syntheticVault, 'Elsewhere', 'Unlisted.md')).catch(() => {});
-    await rmdir(join(syntheticVault, 'ResearchScope')).catch(() => {});
-    await rmdir(join(syntheticVault, 'Elsewhere')).catch(() => {});
-    await rmdir(syntheticVault).catch(() => {});
+    await rm(syntheticVault, { recursive: true, force: true });
     await rmdir(testHome).catch(() => {});
   }
 });

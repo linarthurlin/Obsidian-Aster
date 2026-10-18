@@ -24,7 +24,7 @@ Aster 是 Obsidian 裡的 Codex 優先 Agent 工作台：提供多對話、model
 
 目前一般 Chat 使用 Codex 持久 thread 以支援重新開啟與跨重啟恢復；每個 thread 使用 read-only sandbox，停用 shell/web/plugins，並沿用 Codex 自己的登入。Aster 與 Codex 各保存一份對話紀錄；清除 Aster chat 只會清除 Aster transcript 和 session link，Codex session 需在 Codex 端管理。外掛不讀取或保存憑證。知識操作的 provider/tool 權限仍須逐項做 runtime 對照測試，不因競品能力而放寬。
 
-ROADMAP 未完成項目仍有效：繁中／混合語言檢索品質、跨重啟交易歷史、crash journal 復原、folder chooser、搜尋導覽、多筆提案審核、真實 Obsidian 執行、取消流程、主題共存與無障礙。先補足再增加自動化。
+ROADMAP 未完成項目仍有效：繁中／混合語言檢索品質、跨重啟交易歷史、crash journal 復原、搜尋導覽/backlinks/open note、多筆提案審核、真實 Obsidian 執行、取消流程、主題共存與無障礙。Corpus folder chooser 和受限 folder context 已完成基礎切片，詳見以下進度。
 
 ## 本次實作進度（2026-10-18）
 
@@ -37,8 +37,9 @@ ROADMAP 未完成項目仍有效：繁中／混合語言檢索品質、跨重啟
 - 已加入 Quick Ask: selected text 命令：只讀取當前 Markdown 編輯器的明確選取（上限 12,000 字元），建立獨立對話，將來源路徑與選取內容放入可見、可編輯草稿；使用者按 Send 前不送出，也不替換原文。
 - Projects 可在 Aster 設定中建立、編輯與刪除，並把新 chat 指派至全域或所選 Project。Project instructions 顯示在 chat 中並以 JSON context 傳給 Codex，限制 6,000 字元；每個 chat 固定建立時的名稱與指示快照，修改後只套用於新 chat。Project 不會附加 Vault 檔案或資料夾；Clear chats 保留 Project 設定。
 - 「Attach active note to Aster draft」命令只讀取目前 Markdown 編輯器 buffer（包含尚未存檔的編輯），限制 24,000 字元，將路徑與完整內容放入目前 Chat 的可見 composer；若沒有 Chat 則建立一個。草稿明確標示筆記是未受信任的來源內容，由使用者檢查後自行送出；不呼叫 Vault-wide API、不掃描、不隱藏附加、不改寫筆記。超過限制時拒絕且不截斷。真實 Obsidian buffer/runtime 尚待 disposable Vault 驗證。
+- Chat 可在設定 Corpus 中以 Obsidian fuzzy picker 選擇單篇 Markdown note，或選擇 Corpus 子資料夾作為 context；path-only 清單不讀筆記內容，選取後才讀單一筆記或至多 6 篇資料夾筆記。Folder context 總量上限 24,000 字元，超限不截斷、不建立部分預覽；完整來源快照先顯示，加入 composer 後仍須自行按 Send。Aster 設定的 Corpus folder chooser 使用官方 `Vault.getAllFolders(false)`／`TFolder` 取得可見資料夾中繼資料，以 `visiblePath` 過濾、以既有 `resolveScope` 驗證並保存；文字路徑輸入仍可用。此設計採「API metadata + Obsidian fuzzy picker + Aster path validator」，比只輸入路徑更容易選對資料夾，又避免讀取 note bodies。[Obsidian Vault API](https://docs.obsidian.md/Reference/TypeScript%2BAPI/App/vault)；Copilot 的設定仍採 folder path 欄位加明確 Apply/validation，可作為保留文字輸入的參照：[Copilot BasicSettings](https://github.com/logancyang/obsidian-copilot/blob/master/src/settings/v2/components/BasicSettings.tsx)。
 - Skills MVP 已實作：遵循 Agent Skills `SKILL.md` 的 name/description/frontmatter 慣例，存在使用者 profile 的 `.aster/skills`，最多 40 個；支援建立、編輯、刪除和 slash menu 呼叫。只讀取單一 `SKILL.md`，不解析其引用檔、不執行 scripts、不授予工具或 Vault 權限；呼叫時完整展開成可見、可編輯的 user message，並保留在本機 transcript。`allowed-tools` 不予採用，因為 Aster 權限由 Aster 自己的 Tool Router 管理。
-- 尚未實作工具活動、Scoped Obsidian tools、Knowledge Studio 整合、Research Desk 或 Vault Curator。
+- 尚未實作工具活動與核准後 Obsidian 操作、任意多筆筆記 context 組合、搜尋導覽/backlinks/open note、跨重啟交易 journal recovery、多筆提案逐筆審核、Knowledge Studio 整合、Research Desk 或 Vault Curator。Folder chooser、單筆 note preview 和受限 folder context 已有合成 DOM 測試；真實 Obsidian runtime 仍待驗證。
 
 ## ANKS 與 Building a Second Brain
 
@@ -129,7 +130,7 @@ Per-session meter 使用 Codex usage update 的 `last.totalTokens`（active cont
 
 ### Phase 2 — Scoped Obsidian 工具與交易復原
 
-加入選取文字／目前 note／指定 notes/folder、搜尋、backlinks 和 open note；送出前預覽完整 context。擴展 proposal transaction；補跨重啟歷史、pending journal recovery、folder chooser、搜尋導覽、多筆逐一審核及 keyboard/accessibility。
+加入選取文字／目前 note／指定 notes/folder、搜尋、backlinks 和 open note；送出前預覽完整 context。Corpus folder chooser、單筆 note preview 與最多 6 篇／24,000 字元的 folder context 已完成基礎切片。擴展任意 multi-note context 與 proposal transaction；補跨重啟歷史、pending journal recovery、搜尋導覽、多筆逐一審核及 keyboard/accessibility。
 
 ### Phase 3 — Knowledge Studio 與中英檢索評估
 

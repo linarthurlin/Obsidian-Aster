@@ -1,14 +1,24 @@
-import { Plugin, ItemView, PluginSettingTab, Setting, MarkdownView, Notice, type App, type WorkspaceLeaf } from 'obsidian';
+import { FuzzySuggestModal, Plugin, ItemView, PluginSettingTab, Setting, MarkdownView, Notice, TFolder, type App, type WorkspaceLeaf } from 'obsidian';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
 import { normalizeSettings, type Settings } from './settings';
 import { ChatView, ASTER_CHAT_VIEW } from './chat-view';
-import { listNotes, resolveScope, prepareContext, contextDigest, assertContextFresh, suggestionPlan, type Context, type Reviewed } from '../workflow/corpus.mjs';
+import { listNotes, visiblePath, resolveScope, prepareContext, contextDigest, assertContextFresh, suggestionPlan, type Context, type Reviewed } from '../workflow/corpus.mjs';
 import { runCodex } from '../workflow/codex.mjs';
 import { apply, rollback } from '../workflow/knowledge.mjs';
 const VIEW = 'knowledge-agent-workbench';
+class CorpusFolderPicker extends FuzzySuggestModal<TFolder> {
+  constructor(app: App, private folders: TFolder[], private onChooseFolder: (folder: TFolder) => void) {
+    super(app);
+    this.setPlaceholder('Choose a visible Corpus folder');
+    this.setInstructions([{ command: '↑↓', purpose: 'navigate' }, { command: '↵', purpose: 'validate and select' }]);
+  }
+  getItems() { return this.folders; }
+  getItemText(folder: TFolder) { return folder.path; }
+  onChooseItem(folder: TFolder) { this.onChooseFolder(folder); }
+}
 class Workbench extends ItemView {
   private abort?: AbortController;
   private closed = false;
@@ -184,14 +194,34 @@ class AgentSettings extends PluginSettingTab {
   constructor(app: App, private plugin: KnowledgeAgent) { super(app, plugin); }
   display() {
     const root = this.containerEl; root.empty(); root.createEl('h2', { text: 'Aster' });
-    new Setting(root).setName('Corpus folder / 資料範圍').setDesc('Required visible folder relative to the vault. Whole-vault scope and linked folders are rejected. Nothing scans in the background.')
-      .addText(text => text.setPlaceholder('Research/Selected').setValue(this.plugin.settings.corpusFolder).onChange(async value => { this.plugin.settings.corpusFolder = value; await this.plugin.saveSettings(); }));
+    const corpusSetting = new Setting(root).setName('Corpus folder / 資料範圍').setDesc('Choose or type a visible vault-relative folder. Whole-vault scope and linked folders are rejected. Only path metadata is used to populate the chooser; note content is read only by an explicit workflow.');
+    corpusSetting.addText(text => text.setPlaceholder('Research/Selected').setValue(this.plugin.settings.corpusFolder).onChange(async value => { this.plugin.settings.corpusFolder = value; await this.plugin.saveSettings(); }));
+    corpusSetting.addButton(button => button.setButtonText('Choose folder…').setTooltip('Choose a visible folder in this vault for the Aster Corpus').onClick(() => {
+      const folders = this.app.vault.getAllFolders(false).filter(folder => visiblePath(folder.path)).sort((a, b) => a.path.localeCompare(b.path));
+      if (!folders.length) { new Notice('No visible Corpus folders are available. Create a folder or enter its path in Aster settings.'); return; }
+      new CorpusFolderPicker(this.app, folders, folder => {
+        void (async () => {
+          try {
+            if (!(folder instanceof TFolder) || !visiblePath(folder.path)) throw new Error('Choose a visible vault-relative folder.');
+            const adapter = this.app.vault.adapter as unknown as { getBasePath?: () => string };
+            if (!adapter.getBasePath) throw new Error('A desktop filesystem vault is required to validate the Corpus folder.');
+            await resolveScope(adapter.getBasePath(), folder.path);
+            this.plugin.settings.corpusFolder = folder.path;
+            await this.plugin.saveSettings();
+            this.display();
+            new Notice('Aster Corpus set to ' + folder.path + '.');
+          } catch (error) {
+            new Notice(error instanceof Error ? error.message : 'Could not select the Corpus folder.');
+          }
+        })();
+      }).open();
+    }));
     new Setting(root).setName('Codex CLI executable').setDesc('Optional absolute path to your trusted codex executable. Empty uses installed Codex/PATH; .cmd/.bat/.ps1 wrappers are not supported.')
       .addText(text => text.setValue(this.plugin.settings.executable).onChange(async value => { this.plugin.settings.executable = value; await this.plugin.saveSettings(); }));
     new Setting(root).setName('Default model').setDesc('Default for new chats. Each chat can override this after loading the Codex model catalog. Empty uses the CLI default.')
       .addText(text => text.setValue(this.plugin.settings.model).onChange(async value => { this.plugin.settings.model = value; await this.plugin.saveSettings(); }));
     new Setting(root).setName('Default thinking').setDesc('Default for new chats. Model-specific choices are loaded from Codex when available.')
       .addDropdown(dropdown => dropdown.addOption('', 'Provider default').addOption('low', 'Low').addOption('medium', 'Medium').addOption('high', 'High').addOption('xhigh', 'Extra high').setValue(this.plugin.settings.thinking).onChange(async value => { this.plugin.settings.thinking = value; await this.plugin.saveSettings(); }));
-    root.createEl('p', { text: 'No API keys are stored by this plugin. Chat transcripts stay in the local user profile outside the Vault; plugin settings keep only chat metadata, and Chat requests never attach Vault notes. The Knowledge Studio separately sends only the context you preview and approve. Transaction journals stay outside the vault under your home directory.' });
+    root.createEl('p', { text: 'No API keys are stored by this plugin. Chat transcripts stay in the local user profile outside the Vault; plugin settings keep only chat metadata. Chat includes note text only when you explicitly add it to the visible draft. The Knowledge Studio separately sends only the context you preview and approve. Transaction journals stay outside the vault under your home directory.' });
   }
 }
