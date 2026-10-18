@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { normalizeSettings, type Settings } from './settings';
 import { ChatView, ASTER_CHAT_VIEW } from './chat-view';
-import { listNotes, visiblePath, resolveScope, prepareContext, prepareBatchContext, contextDigest, assertContextFresh, suggestionPlan, batchSuggestionPlan, getCorpusLinkHealth, getCorpusTitleCollisions, type Context, type Reviewed } from '../workflow/corpus.mjs';
+import { listNotes, visiblePath, resolveScope, prepareContext, prepareBatchContext, contextDigest, assertContextFresh, suggestionPlan, batchSuggestionPlan, getCorpusLinkHealth, getCorpusTitleCollisions, getCorpusZeroByteNotes, type Context, type Reviewed } from '../workflow/corpus.mjs';
 import { runCodex, runBatchCodex } from '../workflow/codex.mjs';
 import { apply, listTransactionJournals, readTransactionReview, recoverTransactionJournal, rollbackTransactionJournal, review as reviewPlan } from '../workflow/knowledge.mjs';
 import { renderProposalReviewCard, type ProposalReviewCard } from './proposal-review';
@@ -165,11 +165,36 @@ class Workbench extends ItemView {
         const notePaths = await listNotes(selectedCorpus);
         const health = getCorpusLinkHealth(selectedFolder, notePaths, this.app.metadataCache.resolvedLinks, this.app.metadataCache.unresolvedLinks);
         const titleCollisions = getCorpusTitleCollisions(selectedFolder, notePaths);
+        const fileSizes: Record<string, number> = {};
+        for (const path of notePaths) {
+          const vaultPath = selectedFolder + '/' + path;
+          const file = this.app.vault.getAbstractFileByPath(vaultPath);
+          if (!(file instanceof TFile) || file.path !== vaultPath) throw new Error('Corpus changed during metadata inspection. Run the report again.');
+          fileSizes[path] = file.stat.size;
+        }
+        const zeroByteNotes = getCorpusZeroByteNotes(selectedFolder, notePaths, fileSizes);
         if (await this.plugin.corpus() !== selectedCorpus || this.plugin.settings.corpusFolder !== selectedFolder) throw new Error('Corpus changed while the link report was being prepared. Run it again.');
         if (this.closed) return;
         curatorArea.createEl('h3', { text: 'Corpus link health · metadata only' });
-        curatorArea.createEl('p', { text: 'This on-demand report reads the configured Corpus path list and Obsidian’s link index only. It does not read note bodies, call Codex, or change files.' });
-        curatorArea.createEl('p', { text: `${health.unresolved.length} unresolved link target(s); ${health.noInbound.length} note(s) without an inbound link from this Corpus; ${titleCollisions.length} repeated-title group(s).` });
+        curatorArea.createEl('p', { text: 'This on-demand report reads the configured Corpus path list, Obsidian’s link index, and file-size metadata only. It does not read note bodies, call Codex, or change files.' });
+        curatorArea.createEl('p', { text: `${health.unresolved.length} unresolved link target(s); ${health.noInbound.length} note(s) without an inbound link from this Corpus; ${titleCollisions.length} repeated-title group(s); ${zeroByteNotes.length} zero-byte note(s).` });
+        if (zeroByteNotes.length) {
+          const details = curatorArea.createEl('details');
+          details.createEl('summary', { text: `Zero-byte Markdown notes · ${zeroByteNotes.length} review candidates` });
+          details.createEl('p', { text: 'This check uses Obsidian file-size metadata only. A zero-byte note may be an intentional placeholder; no note body was read.' });
+          for (const path of zeroByteNotes.slice(0, 100)) {
+            const row = details.createDiv({ cls: 'pga-curator-finding' });
+            row.createEl('span', { text: path });
+            const open = row.createEl('button', { text: 'Open note' });
+            open.onclick = async () => {
+              open.disabled = true;
+              try { await openCorpusNote(path, selectedFolder, selectedCorpus); }
+              catch (error) { if (!this.closed) row.createEl('p', { text: error instanceof Error ? error.message : 'Could not open the note.' }); }
+              finally { if (!this.closed) open.disabled = false; }
+            };
+          }
+          if (zeroByteNotes.length > 100) details.createEl('p', { text: `Showing 100 of ${zeroByteNotes.length} zero-byte notes.` });
+        } else curatorArea.createEl('p', { text: 'No zero-byte Markdown files were found inside this Corpus.' });
         if (titleCollisions.length) {
           const details = curatorArea.createEl('details');
           details.createEl('summary', { text: `Repeated note titles · ${titleCollisions.length} disambiguation candidates` });

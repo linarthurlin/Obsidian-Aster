@@ -100,6 +100,18 @@ export function getCorpusTitleCollisions(folder, notePaths) {
     })
     .sort((a, b) => comparePaths(a.title, b.title));
 }
+export function getCorpusZeroByteNotes(folder, notePaths, fileSizes) {
+  if (!visiblePath(folder)) throw new Error('Choose a visible Corpus folder to inspect empty notes.');
+  if (!Array.isArray(notePaths) || notePaths.length > LIMITS.files
+    || notePaths.some(path => !visiblePath(path) || !path.endsWith('.md')))
+    throw new Error('Corpus note listing is invalid or exceeds the file limit.');
+  if (!fileSizes || typeof fileSizes !== 'object') throw new Error('Corpus file metadata is unavailable; no report was produced.');
+  for (const path of notePaths) {
+    if (!Object.hasOwn(fileSizes, path) || !Number.isSafeInteger(fileSizes[path]) || fileSizes[path] < 0)
+      throw new Error('Corpus file metadata is incomplete or invalid; run the report again.');
+  }
+  return notePaths.filter(path => fileSizes[path] === 0).sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+}
 async function boundedRead(root, path) {
   const absolute = await safePath(root, path), info = await lstat(absolute);
   if (info.size > LIMITS.bytes) throw new Error('Note exceeds the 200KB limit: ' + path);

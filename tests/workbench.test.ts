@@ -11,6 +11,7 @@ it('requires explicit scope loading, context preview and consent; changing query
   const home=await mkdtemp(join(tmpdir(),'ka-ui-'));await mkdir(join(home,'Selected'));
   await writeFile(join(home,'Selected/Note.md'),'# Filtering\nHuman text.\n');
   await writeFile(join(home,'Selected/Source.md'),'Bayesian prior combines with observations.');
+  await writeFile(join(home,'Selected/Empty.md'),'');
   await mkdir(join(home,'Selected/Research'),{recursive:true});await mkdir(join(home,'Selected/Archive'),{recursive:true});
   await writeFile(join(home,'Selected/Research/Meeting.md'),'Synthetic duplicate title fixture.');
   await writeFile(join(home,'Selected/Archive/Meeting.md'),'Synthetic duplicate title fixture.');
@@ -22,13 +23,16 @@ it('requires explicit scope loading, context preview and consent; changing query
     if(options.type)(el as any).type=options.type;if(options.placeholder)(el as any).placeholder=options.placeholder;
     if(options.value!==undefined)(el as any).value=options.value;for(const [key,value]of Object.entries(options.attr||{}))el.setAttribute(key,String(value));this.appendChild(el);return el};
   proto.createDiv=function(options:any){return this.createEl('div',options)};proto.createSpan=function(options:any){return this.createEl('span',options)};
-  const app={vault:{adapter:{getBasePath:()=>home}},workspace:{detachLeavesOfType:()=>{}},metadataCache:{
+  let vaultBodyReads=0;
+  const app={vault:{adapter:{getBasePath:()=>home},getAbstractFileByPath:(path:string)=>new TFile(path,path.endsWith('/Empty.md')?0:24),
+    read:async()=>{vaultBodyReads++;throw new Error('Corpus metadata report must not read note bodies')},
+    cachedRead:async()=>{vaultBodyReads++;throw new Error('Corpus metadata report must not read note bodies')}},workspace:{detachLeavesOfType:()=>{}},metadataCache:{
     resolvedLinks:{'Selected/Note.md':{'Selected/Source.md':1}},
     unresolvedLinks:{'Selected/Source.md':{'Missing synthetic target':1}},
   }};
   class Plugin {app=app;async loadData(){return {corpusFolder:'Selected',executable:process.execPath}}registerView(id:string,f:any){factories.set(id,f)}addCommand(){}addSettingTab(){}}
   class FuzzySuggestModal {}
-  class TFile {}
+  class TFile {path:string;stat:{size:number};constructor(path:string,size:number){this.path=path;this.stat={size}}}
   class TFolder {}
   class ItemView {app=app;contentEl=doc.createElement('div');constructor(){doc.querySelector('main')!.appendChild(this.contentEl)}registerDomEvent(el:any,event:string,fn:any){el.addEventListener(event,fn)}}
   const module={exports:{}};
@@ -44,6 +48,9 @@ it('requires explicit scope loading, context preview and consent; changing query
   expect(doc.body.textContent).toContain('Repeated note titles');
   expect(doc.body.textContent).toContain('Research/Meeting.md');
   expect(doc.body.textContent).toContain('Archive/Meeting.md');
+  expect(doc.body.textContent).toContain('Zero-byte Markdown notes');
+  expect(doc.body.textContent).toContain('Empty.md');
+  expect(vaultBodyReads).toBe(0);
   expect(spawned).toBe(0);
   expect(doc.querySelector('pre')).toBeNull();expect(spawned).toBe(0);
   await invoke(button('Ask Codex'));expect(spawned).toBe(0);

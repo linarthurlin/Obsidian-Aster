@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { getCorpusLinkHealth, getCorpusTitleCollisions } from '../workflow/corpus.mjs';
+import { getCorpusLinkHealth, getCorpusTitleCollisions, getCorpusZeroByteNotes } from '../workflow/corpus.mjs';
 
 it('reports only unresolved and no-inbound links whose source and target are inside the selected Corpus', () => {
   const report = getCorpusLinkHealth('ResearchScope', ['Target.md', 'Linker.md', 'Independent.md', 'Self.md'], {
@@ -42,4 +42,13 @@ it('rejects title collision requests outside the visible Corpus contract', () =>
   expect(() => getCorpusTitleCollisions('../Outside', ['Note.md'])).toThrow('visible Corpus folder');
   expect(() => getCorpusTitleCollisions('ResearchScope', ['../Outside.md'])).toThrow('note listing is invalid');
   expect(() => getCorpusTitleCollisions('ResearchScope', ['.hidden/Note.md'])).toThrow('note listing is invalid');
+});
+
+it('reports only zero-byte notes using complete, valid metadata for the selected Corpus', () => {
+  expect(getCorpusZeroByteNotes('ResearchScope', ['B/Empty.md', 'A/Note.md', 'C/Placeholder.md'], {
+    'B/Empty.md': 0, 'A/Note.md': 14, 'C/Placeholder.md': 0,
+  })).toEqual(['B/Empty.md', 'C/Placeholder.md']);
+  expect(() => getCorpusZeroByteNotes('../Outside', ['Note.md'], { 'Note.md': 0 })).toThrow('visible Corpus folder');
+  expect(() => getCorpusZeroByteNotes('ResearchScope', ['Note.md'], {})).toThrow('metadata is incomplete');
+  expect(() => getCorpusZeroByteNotes('ResearchScope', ['Note.md'], { 'Note.md': -1 })).toThrow('metadata is incomplete');
 });

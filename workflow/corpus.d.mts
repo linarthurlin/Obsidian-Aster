@@ -14,6 +14,7 @@ export function listNotes(root:string):Promise<string[]>;
 export function getCorpusBacklinks(folder:string,targetPath:string,notePaths:string[],resolvedLinks:Record<string,Record<string,number>>):string[];
 export function getCorpusLinkHealth(folder:string,notePaths:string[],resolvedLinks:Record<string,Record<string,number>>,unresolvedLinks:Record<string,Record<string,number>>):CorpusLinkHealth;
 export function getCorpusTitleCollisions(folder:string,notePaths:string[]):CorpusTitleCollision[];
+export function getCorpusZeroByteNotes(folder:string,notePaths:string[],fileSizes:Record<string,number>):string[];
 export function searchCorpus(root:string,query:string,limit?:number):Promise<{query:string;scannedFiles:number;scannedBytes:number;truncated:boolean;results:CorpusSearchResult[]}>;
 export function prepareContext(root:string,query:string,target:string):Promise<Context>;
 export function prepareBatchContext(root:string,query:string,targets:string[]):Promise<BatchContext>;
