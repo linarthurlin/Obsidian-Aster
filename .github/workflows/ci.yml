@@ -27,6 +27,6 @@ jobs:
       - run: npm run package
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: knowledge-agent-plugin-${{ matrix.os }}
+          name: aster-plugin-${{ matrix.os }}
           path: release/current/*
           if-no-files-found: error

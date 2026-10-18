@@ -1,4 +1,4 @@
-Knowledge Agent 0.2.1 development prerelease.
+Aster 0.2.1 development prerelease.
 
 Includes a Windows CI correction: compare canonical corpus paths rather than short/long filename spellings.
 

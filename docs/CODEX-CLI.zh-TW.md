@@ -4,14 +4,14 @@
 
 ## 外掛操作
 
-1. 在 Knowledge Agent 設定選定 Vault 內一個明確資料夾，例如 `Research/Selected`；空範圍、整個 Vault、隱藏或連結資料夾不接受。
+1. 在 Aster 設定選定 Vault 內一個明確資料夾，例如 `Research/Selected`；空範圍、整個 Vault、隱藏或連結資料夾不接受。
 2. Open knowledge review workbench → Load scoped notes，選擇現有目標筆記及來源查詢。
 3. Preview context 在本機讀取限定範圍，顯示完整目標筆記與最多六個來源摘錄。檢索是本機詞彙比對，不是向量搜尋。每次最多列舉 2000 個 Markdown，單檔 200KB、目標 32000 字元、單個摘錄 2400 字元；超出時縮小範圍。
 4. 檢查完整送出內容，再勾選同意並 Ask Codex。這會傳送所顯示的內容到 CLI 使用的模型服務，使用既有帳號額度。沒有勾選時不啟動模型；查詢或目標改變時同意失效。檔案改變會要求重做預覽。
 5. 本機核對回傳 schema、來源路徑、原文摘錄及檔案 hash，然後顯示 diff 和證據。模型無法指定另一個更新目標，也不直接執行寫入。
 6. 閱讀差異與證據，另勾選已審核後按 Apply。僅更新該現有 Markdown。Rollback 拒絕覆蓋後續人工修改。
 
-交易紀錄含完整 before/after，保存在使用者 home 下 `.knowledge-agent/transactions/*.private.json`，不在 Vault 內；請當作私密復原資料。現在的介面提供當次更新的回復按鈕，跨重啟的交易歷史 UI 尚待完成，可先用 CLI 對保存的紀錄回復。
+交易紀錄含完整 before/after，保存在使用者 home 下 `.knowledge-agent/transactions/*.private.json`（舊路徑保留以相容既有安裝資料），不在 Vault 內；請當作私密復原資料。現在的介面提供當次更新的回復按鈕，跨重啟的交易歷史 UI 尚待完成，可先用 CLI 對保存的紀錄回復。
 
 ## CLI 操作
 

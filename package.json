@@ -1,9 +1,9 @@
 {
-  "name": "obsidian-knowledge-agent",
+  "name": "obsidian-aster",
   "version": "0.2.1",
   "private": true,
   "type": "module",
-  "description": "Knowledge Agent — independent Obsidian component",
+  "description": "Aster — independent Obsidian AI Agent plugin",
   "license": "MIT",
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -14,6 +14,7 @@
     "install:vault": "node scripts/install.mjs",
     "version:sync": "node scripts/version.mjs",
     "typecheck": "tsc --noEmit",
+    "aster": "node workflow/cli.mjs",
     "knowledge": "node workflow/cli.mjs"
   },
   "devDependencies": {

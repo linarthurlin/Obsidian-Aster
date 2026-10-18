@@ -1,9 +1,9 @@
 {
   "id": "knowledge-agent",
-  "name": "Knowledge Agent",
+  "name": "Aster",
   "version": "0.2.1",
   "minAppVersion": "1.6.0",
-  "description": "Scoped local retrieval, opt-in Codex CLI proposals, evidence review and explicit updates with rollback.",
+  "description": "Scoped knowledge retrieval and evidence-reviewed Codex proposals for Obsidian.",
   "author": "linarthurlin",
   "authorUrl": "https://github.com/linarthurlin",
   "isDesktopOnly": true

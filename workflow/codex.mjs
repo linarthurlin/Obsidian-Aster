@@ -58,7 +58,7 @@ export function execute(executable, args, input, { signal, timeoutMs = 120000, c
 }
 export async function runCodex(context, options = {}) {
   if (options.approvedDigest !== contextDigest(context)) throw new Error('Approve the exact context before sending it to Codex.');
-  const directory = await mkdtemp(join(tmpdir(), 'knowledge-agent-codex-'));
+  const directory = await mkdtemp(join(tmpdir(), 'aster-codex-'));
   const schema = join(directory, 'schema.json'), output = join(directory, 'result.json');
   try {
     await writeFile(schema, JSON.stringify(OUTPUT_SCHEMA), { flag: 'wx' });

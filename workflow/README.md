@@ -1,4 +1,4 @@
-# Knowledge Agent workflow
+# Aster offline workflow
 
 The original offline review engine remains model-free. The optional `codex.mjs` adapter and CLI `codex-plan` command now add explicitly approved Codex inference; they never apply model output automatically. See [Codex integration and boundaries](../docs/CODEX-CLI.zh-TW.md). Model requests transmit the approved context to the CLI model service. Keep contexts, plans and receipts private.
 

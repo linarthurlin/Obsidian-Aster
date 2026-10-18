@@ -14,14 +14,14 @@ class Workbench extends ItemView {
   private generation = 0;
   constructor(leaf: WorkspaceLeaf, private plugin: KnowledgeAgent) { super(leaf); }
   getViewType() { return VIEW; }
-  getDisplayText() { return 'Knowledge Agent'; }
+  getDisplayText() { return 'Aster'; }
   getIcon() { return 'notebook-pen'; }
   async onOpen() {
     this.closed = false;
     const root = this.contentEl; root.empty(); root.addClass('pga-workbench');
-    root.createEl('h2', { text: 'Knowledge Agent' });
+    root.createEl('h2', { text: 'Aster' });
     root.createEl('p', { text: 'Select a folder and target, inspect the context, then request a Codex proposal. No background scanning or automatic edits.' });
-    const scope = root.createEl('p', { cls: 'pga-status', text: 'Corpus: ' + (this.plugin.settings.corpusFolder || 'Choose a folder in Settings → Knowledge Agent') });
+    const scope = root.createEl('p', { cls: 'pga-status', text: 'Corpus: ' + (this.plugin.settings.corpusFolder || 'Choose a folder in Settings → Aster') });
     const query = root.createEl('input', { type: 'text', placeholder: 'Find source evidence…', attr: { 'aria-label': 'Source query', maxlength: '1000' } });
     const targets = root.createEl('select', { attr: { 'aria-label': 'Target note' } });
     targets.createEl('option', { value: '', text: 'Load notes from the selected folder' });
@@ -147,7 +147,7 @@ export default class KnowledgeAgent extends Plugin {
 class AgentSettings extends PluginSettingTab {
   constructor(app: App, private plugin: KnowledgeAgent) { super(app, plugin); }
   display() {
-    const root = this.containerEl; root.empty(); root.createEl('h2', { text: 'Knowledge Agent' });
+    const root = this.containerEl; root.empty(); root.createEl('h2', { text: 'Aster' });
     new Setting(root).setName('Corpus folder / 資料範圍').setDesc('Required visible folder relative to the vault. Whole-vault scope and linked folders are rejected. Nothing scans in the background.')
       .addText(text => text.setPlaceholder('Research/Selected').setValue(this.plugin.settings.corpusFolder).onChange(async value => { this.plugin.settings.corpusFolder = value; await this.plugin.saveSettings(); }));
     new Setting(root).setName('Codex CLI executable').setDesc('Optional absolute path to your trusted codex executable. Empty uses installed Codex/PATH; .cmd/.bat/.ps1 wrappers are not supported.')

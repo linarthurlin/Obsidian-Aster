@@ -1,4 +1,4 @@
-# Knowledge Agent changes
+# Aster changes
 
 ## 0.2.1 — 2026-10-17
 

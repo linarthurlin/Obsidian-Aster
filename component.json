@@ -1,7 +1,7 @@
 {
   "kind": "plugin",
   "folder": "knowledge-agent",
-  "artifact": "knowledge-agent-plugin",
-  "title": "Knowledge Agent",
+  "artifact": "aster-plugin",
+  "title": "Aster",
   "version": "0.2.1"
 }

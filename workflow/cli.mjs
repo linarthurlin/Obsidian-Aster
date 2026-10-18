@@ -29,5 +29,5 @@ try {
   } else if (command === 'review') console.log(JSON.stringify(review(await json('plan')), null, 2));
   else if (command === 'apply') console.log(JSON.stringify(await apply(arg('vault'), await json('plan'), arg('review'), arg('transaction')), null, 2));
   else if (command === 'rollback') console.log(JSON.stringify(await rollback(arg('vault'), await json('transaction')), null, 2));
-  else console.log('Knowledge Agent offline workflow: context | codex-plan | search | plan | review | apply | rollback. See workflow/README.md.');
+  else console.log('Aster offline workflow: context | codex-plan | search | plan | review | apply | rollback. See workflow/README.md.');
 } catch (error) { console.error(error.message); process.exitCode = 1; }

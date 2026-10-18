@@ -59,5 +59,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const index = process.argv.indexOf('--vault');
   if (index < 0 || !process.argv[index + 1]) throw new Error('Usage: npm run install:vault -- --vault <existing-vault-directory>');
   console.log(JSON.stringify(await install(process.argv[index + 1]), null, 2));
-  console.log('Installed only Knowledge Agent plugin files. Enable it manually in Obsidian. No notes or existing configuration changed.');
+  console.log('Installed only Aster plugin files. Enable it manually in Obsidian. No notes or existing configuration changed.');
 }

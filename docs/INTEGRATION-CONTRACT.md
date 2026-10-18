@@ -4,7 +4,7 @@ The theme owns visual styling. Plugins own behavior. All components can be insta
 
 Theme repo: https://github.com/linarthurlin/obsidian-personal-glass
 Companion repo: https://github.com/linarthurlin/obsidian-personal-glass-companion
-Agent repo: https://github.com/linarthurlin/obsidian-knowledge-agent
+Aster repo: https://github.com/linarthurlin/Obsidian-Aster
 
 ## Stable CSS contract
 
