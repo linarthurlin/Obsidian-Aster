@@ -24,7 +24,7 @@ Aster 是 Obsidian 裡的 Codex 優先 Agent 工作台：提供多對話、model
 
 目前一般 Chat 使用 Codex 持久 thread 以支援重新開啟與跨重啟恢復；每個 thread 使用 read-only sandbox，停用 shell/web/plugins，並沿用 Codex 自己的登入。Aster 與 Codex 各保存一份對話紀錄；清除 Aster chat 只會清除 Aster transcript 和 session link，Codex session 需在 Codex 端管理。外掛不讀取或保存憑證。知識操作的 provider/tool 權限仍須逐項做 runtime 對照測試，不因競品能力而放寬。
 
-ROADMAP 未完成項目仍有效：繁中／混合語言檢索品質、多筆提案審核、真實 Obsidian 執行、取消流程、主題共存與無障礙。Corpus 搜尋、新分頁導覽及 Corpus 範圍內 backlinks 已有合成 UI 測試；backlink 只使用 Obsidian metadata index，結果來源受 Corpus 路徑清單限制；pending journal inspect/recovery CLI 與跨重啟交易歷史 UI 已有保守復原和 synthetic plugin reload 測試；真實 Obsidian runtime/recovery flow 待驗證。Corpus folder chooser 和受限 folder context 已完成基礎切片，詳見以下進度。
+ROADMAP 未完成項目仍有效：繁中／混合語言檢索品質、多筆提案審核、真實 Obsidian 執行、取消流程、主題共存與無障礙。Corpus 搜尋、新分頁導覽及 Corpus 範圍內 backlinks 已有合成 UI 測試；backlink 使用官方 `MetadataCache.resolvedLinks` 的來源→目標索引，結果來源再由 Corpus 路徑清單過濾，避免為 backlink 顯示讀取 note body。這與社群 Better Backlinks 將 Obsidian link index 作為 direct backlink 來源的做法一致；title match／unlinked mention 會走全庫檔名或正文檢索，因此先排除在這個 scoped MVP 之外。[MetadataCache API](https://docs.obsidian.md/Reference/TypeScript%2BAPI/MetadataCache)；[Better Backlinks privacy notes](https://github.com/MrVersano/obsidian-better-backlinks#privacy)。pending journal inspect/recovery CLI 與跨重啟交易歷史 UI 已有保守復原和 synthetic plugin reload 測試；真實 Obsidian runtime/recovery flow 待驗證。Corpus folder chooser 和受限 folder context 已完成基礎切片，詳見以下進度。
 
 ## 本次實作進度（2026-10-18）
 

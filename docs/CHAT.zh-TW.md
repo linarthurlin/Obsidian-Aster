@@ -8,6 +8,8 @@ Chat 使用本機 Codex CLI 的 app-server，Aster 目前只接受已驗證的 `
 
 一般 Chat 只傳送使用者輸入與該 session 對話，不會自動附加目前筆記或 Vault 範圍，也不提供 Obsidian 檔案工具。若設定了 Aster Corpus 資料夾，可用「Add note context」搜尋並選一篇 Markdown，或用「Add folder context」選 Corpus 根目錄／子資料夾。picker 只讀設定範圍內的路徑中繼資料；選取後才讀單篇筆記或資料夾內筆記。資料夾預覽最多包含 6 篇、合計 24,000 字元；超限時整批拒絕，不截斷。Aster 顯示完整快照與來源路徑，使用者明確按「Add context to draft」後，內容才進入可編輯 composer，仍須自行檢查並按 Send。預覽、加入草稿或捨棄預覽都不會呼叫模型。Codex 的 shell、plugins、apps、browser、computer、multi-agent、memories 和 web search 都停用；MCP 清空，project instruction 載入上限設為零，thread 使用暫存工作目錄、read-only sandbox，turn 的 network access 關閉。任何未預期的 Codex 工具 item 或 server-initiated tool／approval request 都會被拒絕並中斷該 turn。這些限制降低能力，但不宣稱是完整 OS 隔離。
 
+Corpus 設定完成後，也可按「Search Corpus」在此範圍執行本機搜尋：最多掃描 20MB Markdown、顯示最多 20 筆且每筆摘錄最多 420 字元；搜尋不呼叫模型、不加入 chat。搜尋結果可在新分頁開啟，或查看由 Obsidian link metadata 得到的 Corpus 範圍內 backlinks；來源筆記同樣只開檔，不讀入對話草稿。
+
 自訂 Skills 以 Agent Skills 相容的 `SKILL.md` 存在 Windows `%USERPROFILE%\.aster\skills\<name>\SKILL.md`（其他平台為 `~/.aster/skills/`），最多 40 個。從 slash 選單選用後，Skill 指示會展開在 composer 中，使用者可先檢查、編輯再送出；展開後的內容會作為普通 user message 保存在對話記錄。Aster 只讀 `SKILL.md` 的文字，不載入相對參考檔、不執行 scripts，也不把 `allowed-tools` 當成授權。刪除 Skill 只刪 `SKILL.md`；若資料夾另有使用者資源則保留。這些 Skill 檔與 Vault 分開，不會被 Clear chats 刪除。
 
 「Attach active note to Aster draft」Command Palette 命令讀取目前 Markdown 編輯器 buffer（包含未存檔內容），最多 24,000 字元，並將來源路徑與全文複製到目前 Chat 的可見 composer。若沒有 Chat，Aster 會先建立新 chat。草稿會提醒模型把筆記當成來源資料，使用者可先檢查、修改或刪除，再自行送出；超過上限時不截斷、不加入。此命令不掃描 Vault、不改寫原筆記。
