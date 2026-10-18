@@ -4,6 +4,7 @@ import { TEMPLATES, createInsertion } from './commands';
 import { NativeMaterialController, type NativeWindow } from './native';
 import { GlassNavigator, NAVIGATOR_VIEW } from './navigator';
 import { rememberPath, relocatePaths } from './navigator-model';
+import { selectionVariables } from './selection';
 
 declare const require: (name: string) => unknown;
 interface SurfaceState {
@@ -11,6 +12,7 @@ interface SurfaceState {
   attributes: Map<string, string | null>;
   width: string;
   widthPriority: string;
+  selectionStyles: Map<string, { value: string; priority: string }>;
 }
 const ATTRS = ['data-personal-palette', 'data-personal-surface', 'data-personal-images', 'data-personal-motion', 'data-personal-native'];
 export default class PersonalGlass extends Plugin {
@@ -119,12 +121,16 @@ export default class PersonalGlass extends Plugin {
       body, attributes: new Map(ATTRS.map(attr => [attr, body.getAttribute(attr)])),
       width: body.style.getPropertyValue('--personal-content-width'),
       widthPriority: body.style.getPropertyPriority('--personal-content-width'),
+      selectionStyles: new Map(Object.keys(selectionVariables(this.settings)).map(key => [key, {
+        value: body.style.getPropertyValue(key), priority: body.style.getPropertyPriority(key),
+      }])),
     });
     body.setAttribute('data-personal-palette', this.settings.palette);
     body.setAttribute('data-personal-surface', this.settings.surface);
     body.setAttribute('data-personal-images', this.settings.roundedImages ? 'rounded' : 'square');
     body.setAttribute('data-personal-motion', this.settings.reduceMotion ? 'reduced' : 'system');
     body.style.setProperty('--personal-content-width', `${this.settings.contentWidth}px`);
+    for (const [key, value] of Object.entries(selectionVariables(this.settings))) body.style.setProperty(key, value);
     const result = this.native.apply(this.getNativeWindow(doc), this.settings.material, Platform.isWin);
     body.setAttribute('data-personal-native', result.active ? 'active' : 'off');
     if (doc === document) this.nativeStatus = result.message;
@@ -140,6 +146,10 @@ export default class PersonalGlass extends Plugin {
     } catch { return null; }
   }
   private restore(state: SurfaceState) {
+    for (const [key, original] of state.selectionStyles) {
+      if (original.value) state.body.style.setProperty(key, original.value, original.priority);
+      else state.body.style.removeProperty(key);
+    }
     for (const [attr, value] of state.attributes) {
       if (value === null) state.body.removeAttribute(attr); else state.body.setAttribute(attr, value);
     }
@@ -170,6 +180,33 @@ class GlassSettingTab extends PluginSettingTab {
     });
     new Setting(containerEl).setName('Local note previews').setDesc('Off by default. Reads only displayed Markdown rows; no AI or external images.').addToggle(toggle => toggle.setValue(this.plugin.settings.navigatorPreviews).onChange(async value => {
       this.plugin.settings.navigatorPreviews = value; await this.plugin.persist();
+    }));
+    containerEl.createEl('h3', { text: 'Selection glass / 文件選取玻璃' });
+    containerEl.createEl('p', { text: 'Champagne × Sage by default. Light and dark colors are independent. Changes apply immediately to Navigator, native File explorer and the optional Notebook Navigator. Blur affects only the background; a uniform background may show little visible blur.' });
+    const preview = containerEl.createDiv({ cls: 'pg-selection-preview', attr: { 'aria-label': 'Selection appearance preview' } });
+    preview.createEl('strong', { text: 'Personal Glass' });
+    preview.createSpan({ text: 'A quiet space for connected ideas' });
+    for (const [key, label] of [
+      ['selectionLightStart', 'Light · start color / 淺色起點'], ['selectionLightEnd', 'Light · end color / 淺色終點'],
+      ['selectionDarkStart', 'Dark · start color / 深色起點'], ['selectionDarkEnd', 'Dark · end color / 深色終點'],
+    ] as const) new Setting(containerEl).setName(label).addColorPicker(picker => picker.setValue(this.plugin.settings[key]).onChange(async value => {
+      this.plugin.settings[key] = value; await this.plugin.persist();
+    }));
+    for (const [key, label, max, description] of [
+      ['selectionLightOpacity', 'Light · color opacity / 淺色不透明度', 100, '10–100%. Lower values expose more background.'],
+      ['selectionDarkOpacity', 'Dark · color opacity / 深色不透明度', 100, '10–100%. Keep enough fill to identify the current file.'],
+      ['selectionGlass', 'Glass strength / 玻璃程度', 100, 'Controls inner highlights and soft shadow. 0 gives flat fill and disables blur.'],
+      ['selectionBlur', 'Background blur / 背景模糊', 24, '0–24px. Never blurs the text. Requires glass strength above zero.'],
+      ['selectionAngle', 'Gradient angle / 漸層方向', 360, '0–360 degrees.'],
+    ] as const) new Setting(containerEl).setName(label).setDesc(description).addSlider(slider => slider
+      .setLimits(key.includes('Opacity') ? 10 : 0, max, 1).setValue(this.plugin.settings[key]).setDynamicTooltip().onChange(async value => {
+        this.plugin.settings[key] = value; await this.plugin.persist();
+      }));
+    new Setting(containerEl).setName('Reset selection / 回復選取預設').setDesc('Restore Champagne × Sage colors and glass settings only.').addButton(button => button.setButtonText('Reset').onClick(async () => {
+      for (const key of Object.keys(DEFAULT_SETTINGS).filter(key => key.startsWith('selection')) as Array<keyof GlassSettings>) {
+        Object.assign(this.plugin.settings, { [key]: DEFAULT_SETTINGS[key] });
+      }
+      await this.plugin.persist(); this.display();
     }));
     new Setting(containerEl).setName('Palette').addDropdown(drop => {
       for (const key of PALETTES) drop.addOption(key, { warm: 'Warm Neutral', mineral: 'Mineral', rose: 'Rose Stone' }[key]);

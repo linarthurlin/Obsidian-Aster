@@ -1,0 +1,55 @@
+/* Shared by theme and companion: explicit colors, never opacity/filter on text. */
+body {
+  --pg-selection-light-start: #e9d9ba; --pg-selection-light-end: #c8dacb;
+  --pg-selection-dark-start: #a48c5c; --pg-selection-dark-end: #6e9b83;
+  --pg-selection-light-opacity: 65%; --pg-selection-dark-opacity: 32%;
+  --pg-selection-angle: 115deg; --pg-selection-blur: 12px;
+  --pg-selection-highlight: 39%; --pg-selection-shadow: 9%; --pg-selection-shadow-size: 7px;
+  --pg-selection-start: var(--pg-selection-light-start); --pg-selection-end: var(--pg-selection-light-end);
+  --pg-selection-opacity: var(--pg-selection-light-opacity);
+  --pg-selection-text: var(--pg-selection-light-text, #252b25);
+}
+body.theme-dark {
+  --pg-selection-start: var(--pg-selection-dark-start); --pg-selection-end: var(--pg-selection-dark-end);
+  --pg-selection-opacity: var(--pg-selection-dark-opacity);
+  --pg-selection-text: var(--pg-selection-dark-text, #f1f4ef);
+}
+body .pg-file:is(.is-selected, [aria-current='page']),
+body .nav-file-title.is-active,
+body .pg-selection-preview,
+body .nn-file.nn-selected .nn-file-content::before {
+  background: linear-gradient(var(--pg-selection-angle),
+    color-mix(in srgb, var(--pg-selection-start) var(--pg-selection-opacity), transparent),
+    color-mix(in srgb, var(--pg-selection-end) var(--pg-selection-opacity), transparent)) !important;
+  backdrop-filter: blur(var(--pg-selection-blur)) saturate(1.08);
+  -webkit-backdrop-filter: blur(var(--pg-selection-blur)) saturate(1.08);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white var(--pg-selection-highlight), transparent),
+    inset 0 0 0 1px color-mix(in srgb, white var(--pg-selection-highlight), transparent),
+    0 3px var(--pg-selection-shadow-size) rgb(0 0 0 / var(--pg-selection-shadow)) !important;
+  color: var(--pg-selection-text);
+}
+body .pg-file:is(.is-selected, [aria-current='page']) :is(.pg-file-title,.pg-file-path,.pg-file-preview,.pg-file-icon),
+body .nav-file-title.is-active, body .pg-selection-preview,
+body .nn-file.nn-selected :is(.nn-file-name,.nn-file-preview,.nn-file-date) { color: var(--pg-selection-text); }
+body .pg-file[aria-current='page']::before { content: none; }
+body .pg-file[aria-current='page'] .pg-file-title,
+body .nav-file-title.is-active .nav-file-title-content { font-weight: 650; }
+.pg-selection-preview { margin-block: 12px 24px; padding: 16px 20px; }
+.pg-selection-preview strong, .pg-selection-preview span { display: block; }
+.pg-selection-preview span { margin-top: 6px; }
+@media (prefers-reduced-transparency: reduce) {
+  body { --pg-selection-light-opacity: 100% !important; --pg-selection-dark-opacity: 100% !important; --pg-selection-blur: 0px !important; }
+  body { --pg-selection-text: var(--pg-selection-light-opaque-text, #252b25); }
+  body.theme-dark { --pg-selection-text: var(--pg-selection-dark-opaque-text, #252b25); }
+}
+@media (forced-colors: active) {
+  body .pg-file:is(.is-selected, [aria-current='page']), body .nav-file-title.is-active,
+  body .pg-selection-preview, body .nn-file.nn-selected .nn-file-content::before {
+    background: Highlight !important; color: HighlightText !important; box-shadow: none !important;
+    backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+  }
+  body .pg-file:is(.is-selected, [aria-current='page']) :is(.pg-file-title,.pg-file-path,.pg-file-preview,.pg-file-icon),
+  body .pg-selection-preview, body .pg-selection-preview span, body .nav-file-title.is-active,
+  body .nn-file.nn-selected :is(.nn-file-name,.nn-file-preview,.nn-file-date) { color: HighlightText !important; }
+}

@@ -26,6 +26,7 @@ Integrated Navigator and Reading View with optional Crisp Craft, using synthetic
 - Experimental Windows Mica/Acrylic through Electron's native window API, explicitly opt-in and off by default.
 - Shared token adapter for the optional [Crisp Craft](https://github.com/letschips/crisp-craft) Reading View plugin.
 - Original read-only Navigator with folders, recent files, pins, alias/tag search, adaptive panes and opt-in local previews. Optional Notebook Navigator theme adapter.
+- Configurable selection glass: Champagne × Sage default, independent light/dark gradient colors and opacity, blur, reflection/depth strength, angle, live settings preview and reset.
 - Offline SVG authoring skill with paired light/dark examples, and a separate proposal/review/rollback CLI for agent-supplied note updates.
 
 This does not implement Apple's Liquid Glass renderer or replace Obsidian's editor. Native materials require Windows 11 22H2+, a compatible Electron runtime and the hidden/Obsidian window frame. The OS can use a solid fallback. Portable mode uses an in-app gradient and does not expose other desktop windows.

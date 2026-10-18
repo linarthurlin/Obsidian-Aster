@@ -13,16 +13,33 @@ export interface GlassSettings {
   navigatorPreviews: boolean;
   pinnedPaths: string[];
   recentPaths: string[];
+  selectionLightStart: string;
+  selectionLightEnd: string;
+  selectionDarkStart: string;
+  selectionDarkEnd: string;
+  selectionLightOpacity: number;
+  selectionDarkOpacity: number;
+  selectionBlur: number;
+  selectionGlass: number;
+  selectionAngle: number;
 }
 export const DEFAULT_SETTINGS: GlassSettings = {
   palette: 'warm', surface: 'portable', material: 'none',
   roundedImages: true, reduceMotion: false, contentWidth: 820,
   navigatorLayout: 'auto', navigatorPreviews: false, pinnedPaths: [], recentPaths: [],
+  selectionLightStart: '#e9d9ba', selectionLightEnd: '#c8dacb',
+  selectionDarkStart: '#a48c5c', selectionDarkEnd: '#6e9b83',
+  selectionLightOpacity: 65, selectionDarkOpacity: 32, selectionBlur: 12,
+  selectionGlass: 55, selectionAngle: 115,
 };
 export function normalizeSettings(value: unknown): GlassSettings {
   const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {};
   const choice = <T extends string>(values: readonly T[], candidate: unknown, fallback: T): T =>
     values.includes(candidate as T) ? candidate as T : fallback;
+  const color = (key: keyof GlassSettings) => typeof raw[key] === 'string' && /^#[0-9a-f]{6}$/i.test(raw[key] as string)
+    ? (raw[key] as string).toLowerCase() : DEFAULT_SETTINGS[key] as string;
+  const number = (key: keyof GlassSettings, min: number, max: number) => typeof raw[key] === 'number' && Number.isFinite(raw[key])
+    ? Math.round(Math.min(max, Math.max(min, raw[key] as number))) : DEFAULT_SETTINGS[key] as number;
   return {
     palette: choice(PALETTES, raw.palette, DEFAULT_SETTINGS.palette),
     surface: choice(SURFACES, raw.surface, DEFAULT_SETTINGS.surface),
@@ -35,6 +52,11 @@ export function normalizeSettings(value: unknown): GlassSettings {
     navigatorPreviews: raw.navigatorPreviews === true,
     pinnedPaths: sanitizePaths(raw.pinnedPaths, 200),
     recentPaths: sanitizePaths(raw.recentPaths, 40),
+    selectionLightStart: color('selectionLightStart'), selectionLightEnd: color('selectionLightEnd'),
+    selectionDarkStart: color('selectionDarkStart'), selectionDarkEnd: color('selectionDarkEnd'),
+    selectionLightOpacity: number('selectionLightOpacity', 10, 100), selectionDarkOpacity: number('selectionDarkOpacity', 10, 100),
+    selectionBlur: number('selectionBlur', 0, 24), selectionGlass: number('selectionGlass', 0, 100),
+    selectionAngle: number('selectionAngle', 0, 360),
   };
 }
 function sanitizePaths(value: unknown, limit: number): string[] {

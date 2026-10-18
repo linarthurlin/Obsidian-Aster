@@ -15,6 +15,14 @@
 
 設定中的 **Local note previews** 預設關閉。開啟後只讀取目前已列出的 Markdown，跳過超過 200KB 的檔案，快取最多 120 筆；每次先列出 80 個結果，可按 Show next 繼續。搜尋使用 Obsidian 中繼資料快取，不建立全庫內容索引、不載入遠端縮圖。檔案很多時中繼資料篩選仍有全庫遍歷成本，尚未宣稱大型 Vault 效能達標。
 
+## 選取玻璃設定（0.2.1）
+
+Settings → Personal Glass → **Selection glass / 文件選取玻璃** 可即時控制：淺色與深色各兩個漸層顏色、各自的色彩不透明度（10–100%）、背景模糊（0–24px）、玻璃程度（高光與陰影，0–100）及漸層方向（0–360°）。預設為 Champagne × Sage；Reset 只回復選取設定。
+
+目前文件使用持續的整列漸層背景，移除原有的單條側邊指示線。色彩相同時可作為單色選取。玻璃程度 0 會停用高光、陰影與背景模糊，保留填色。模糊只作用在後方內容，純色背景的變化可能不明顯；不是 Windows 原生材質開關。減少透明度及高對比設定仍優先。
+
+文字會依兩端顏色與明暗模式估算可讀的深／淺色；強烈對比的漸層或複雜背景仍需人工確認。設定套用於 Personal Glass Navigator、原生 File explorer 與選配 Notebook Navigator；不修改任何文件內容。
+
 ## Notebook Navigator 選配
 
 可自行安裝 [Notebook Navigator](https://github.com/johansan/notebook-navigator)，再使用 **Open Notebook Navigator integration**。未安裝時會開啟內建導覽器。Theme 只提供原創顏色與圓角 tokens；不包含或複製 GPL 外掛程式碼，也不修改它的設定。Notebook Navigator 本身具有寫入與檔案管理功能，不受內建導覽器的唯讀操作範圍限制。

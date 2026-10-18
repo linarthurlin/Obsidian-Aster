@@ -141,7 +141,7 @@ export class GlassNavigator extends ItemView {
       if (!(file instanceof TFile)) continue;
       const row = this.list.createDiv({ cls: 'pg-nav-row', attr: { role: 'listitem' } });
       const button = row.createEl('button', { cls: 'pg-file', attr: { 'data-path': file.path, title: file.path, 'aria-current': file.path === active ? 'page' : 'false' } });
-      button.classList.toggle('is-selected', this.selected === file.path);
+      button.classList.toggle('is-selected', this.selected === file.path && file.path === active);
       const icon = button.createSpan({ cls: 'pg-file-icon' });
       setIcon(icon, ({ md: 'file-text', canvas: 'layout-dashboard', base: 'database', pdf: 'file-type', svg: 'image', png: 'image', jpg: 'image' } as Record<string, string>)[file.extension] || 'file');
       const content = button.createSpan({ cls: 'pg-file-content' });

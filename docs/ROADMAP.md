@@ -7,6 +7,8 @@
 - [x] Linux/Windows CI and tag-driven development releases.
 - [x] Original read-only Navigator: adaptive folder/list layout, recent files, pins, alias/tag search, keyboard navigation and opt-in bounded previews.
 - [x] Optional Notebook Navigator token adapter and open command; no copied third-party implementation.
+- [x] Configurable Champagne × Sage selection surface (0.2.1): paired colors, opacity, background blur, glass strength, angle and settings preview.
+- [ ] Visually verify 0.2.1 selection controls in the real app across native Explorer / Navigator / Notebook Navigator; prior 0.2.0 smoke results are not a substitute.
 - [x] Native API matrix: three palettes × two modes × none/Mica/Acrylic/Mica Alt, popout document, viewport resize and emulated reduced motion/transparency/high contrast.
 - [ ] Complete native-material visual matrix on a real Windows desktop: focus, physical resize, OS transparency disabled, wallpapers, DPI and multi-monitor behavior. API acceptance and browser emulation do not establish these results.
 - [x] Initial coexistence check with table, canvas and cursor plugins; synthetic Canvas and Live Preview smoke tests.
