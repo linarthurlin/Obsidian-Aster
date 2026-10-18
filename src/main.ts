@@ -1,11 +1,11 @@
-import { FuzzySuggestModal, Plugin, ItemView, PluginSettingTab, Setting, MarkdownView, Notice, TFolder, type App, type WorkspaceLeaf } from 'obsidian';
+import { FuzzySuggestModal, Plugin, ItemView, PluginSettingTab, Setting, MarkdownView, Notice, TFile, TFolder, type App, type WorkspaceLeaf } from 'obsidian';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { normalizeSettings, type Settings } from './settings';
 import { ChatView, ASTER_CHAT_VIEW } from './chat-view';
-import { listNotes, visiblePath, resolveScope, prepareContext, prepareBatchContext, contextDigest, assertContextFresh, suggestionPlan, batchSuggestionPlan, type Context, type Reviewed } from '../workflow/corpus.mjs';
+import { listNotes, visiblePath, resolveScope, prepareContext, prepareBatchContext, contextDigest, assertContextFresh, suggestionPlan, batchSuggestionPlan, getCorpusLinkHealth, type Context, type Reviewed } from '../workflow/corpus.mjs';
 import { runCodex, runBatchCodex } from '../workflow/codex.mjs';
 import { apply, listTransactionJournals, readTransactionReview, recoverTransactionJournal, rollbackTransactionJournal, review as reviewPlan } from '../workflow/knowledge.mjs';
 import { renderProposalReviewCard, type ProposalReviewCard } from './proposal-review';
@@ -53,9 +53,12 @@ class Workbench extends ItemView {
     const historyActions = root.createDiv({ cls: 'pga-actions' });
     const historyButton = historyActions.createEl('button', { text: 'Transaction history / 交易紀錄' });
     const historyArea = root.createDiv({ cls: 'pga-results pga-transaction-history' });
+    const curatorActions = root.createDiv({ cls: 'pga-actions' });
+    const curatorButton = curatorActions.createEl('button', { text: 'Run Corpus link health / 檢查 Corpus 連結' });
+    const curatorArea = root.createDiv({ cls: 'pga-results pga-curator' });
     type WorkbenchContext = Context | Awaited<ReturnType<typeof prepareBatchContext>>;
     let corpus = '', context: WorkbenchContext | undefined, reviewed: Reviewed | null = null;
-    let historyLoading = false;
+    let historyLoading = false, curatorLoading = false;
     const invalidate = () => { ++this.generation; context = undefined; reviewed = null; consent.checked = false; send.disabled = true; contextArea.empty(); resultArea.empty(); };
     const report = (error: unknown) => {
       if (this.closed) return;
@@ -63,7 +66,18 @@ class Workbench extends ItemView {
         ? error.message : typeof error === 'string' ? error : 'Operation failed.';
       status.setText(detail);
     };
-    const locked = (busy: boolean) => { load.disabled = busy; prepare.disabled = busy || !targets.value; query.disabled = busy; targets.disabled = busy; consent.disabled = busy; send.disabled = busy || !context || !consent.checked; cancel.disabled = !busy; historyButton.disabled = busy || historyLoading; };
+    const locked = (busy: boolean) => { load.disabled = busy; prepare.disabled = busy || !targets.value; query.disabled = busy; targets.disabled = busy; consent.disabled = busy; send.disabled = busy || !context || !consent.checked; cancel.disabled = !busy; historyButton.disabled = busy || historyLoading; curatorButton.disabled = busy || curatorLoading; };
+    const openCorpusNote = async (relativePath: string, selectedFolder: string, selectedCorpus: string) => {
+      const rootPath = await this.plugin.corpus();
+      if (rootPath !== selectedCorpus || this.plugin.settings.corpusFolder !== selectedFolder) throw new Error('Corpus changed. Run the link check again before opening a result.');
+      if (!(await listNotes(rootPath)).includes(relativePath)) throw new Error('This note is no longer inside the configured Corpus.');
+      const vaultPath = selectedFolder + '/' + relativePath;
+      const file = this.app.vault.getAbstractFileByPath(vaultPath);
+      if (!(file instanceof TFile) || file.path !== vaultPath) throw new Error('Obsidian could not resolve this note inside the selected Corpus.');
+      const leaf = this.app.workspace.getLeaf('tab');
+      await leaf.openFile(file);
+      await this.app.workspace.revealLeaf(leaf);
+    };
     const showTransactionReview = async (transaction: { path: string; status: string; targetPaths: string[] }, container: HTMLElement, selectedCorpus: string) => {
       container.empty();
       try {
@@ -141,6 +155,58 @@ class Workbench extends ItemView {
       finally { historyLoading = false; if (!this.closed) historyButton.disabled = false; }
     };
     historyButton.onclick = () => loadHistory();
+    curatorButton.onclick = async () => {
+      if (curatorLoading) return;
+      curatorLoading = true; locked(true); curatorArea.empty();
+      try {
+        const selectedFolder = this.plugin.settings.corpusFolder;
+        if (!selectedFolder) throw new Error('Choose a Corpus folder in Settings → Aster first.');
+        const selectedCorpus = await this.plugin.corpus();
+        const notePaths = await listNotes(selectedCorpus);
+        const health = getCorpusLinkHealth(selectedFolder, notePaths, this.app.metadataCache.resolvedLinks, this.app.metadataCache.unresolvedLinks);
+        if (await this.plugin.corpus() !== selectedCorpus || this.plugin.settings.corpusFolder !== selectedFolder) throw new Error('Corpus changed while the link report was being prepared. Run it again.');
+        if (this.closed) return;
+        curatorArea.createEl('h3', { text: 'Corpus link health · metadata only' });
+        curatorArea.createEl('p', { text: 'This on-demand report reads the configured Corpus path list and Obsidian’s link index only. It does not read note bodies, call Codex, or change files.' });
+        curatorArea.createEl('p', { text: `${health.unresolved.length} unresolved link target(s); ${health.noInbound.length} note(s) without an inbound link from this Corpus.` });
+        if (health.unresolved.length) {
+          curatorArea.createEl('h4', { text: 'Unresolved link targets · review candidates' });
+          curatorArea.createEl('p', { text: 'An unresolved link may point to a renamed note or alias, or contain a typo. This report does not classify it as a confirmed broken link.' });
+          for (const finding of health.unresolved.slice(0, 100)) {
+            const entry = curatorArea.createDiv({ cls: 'pga-curator-finding' });
+            entry.createEl('strong', { text: `${finding.target} · ${finding.count} occurrence(s)` });
+            entry.createEl('p', { text: 'Source: ' + finding.sourcePath });
+            const open = entry.createEl('button', { text: 'Open source note' });
+            open.onclick = async () => {
+              open.disabled = true;
+              try { await openCorpusNote(finding.sourcePath, selectedFolder, selectedCorpus); }
+              catch (error) { if (!this.closed) entry.createEl('p', { text: error instanceof Error ? error.message : 'Could not open the source note.' }); }
+              finally { if (!this.closed) open.disabled = false; }
+            };
+          }
+          if (health.unresolved.length > 100) curatorArea.createEl('p', { text: `Showing 100 of ${health.unresolved.length} unresolved entries.` });
+        } else curatorArea.createEl('p', { text: 'No unresolved links were reported for notes in this Corpus.' });
+        if (health.noInbound.length) {
+          const details = curatorArea.createEl('details');
+          details.createEl('summary', { text: `Notes without inbound Corpus links · ${health.noInbound.length} candidates` });
+          details.createEl('p', { text: 'These may be intentionally independent notes or linked from outside the selected Corpus; absence of an inbound Corpus link is not proof of an orphan.' });
+          for (const path of health.noInbound.slice(0, 100)) {
+            const row = details.createDiv({ cls: 'pga-curator-finding' });
+            row.createEl('span', { text: path });
+            const open = row.createEl('button', { text: 'Open note' });
+            open.onclick = async () => {
+              open.disabled = true;
+              try { await openCorpusNote(path, selectedFolder, selectedCorpus); }
+              catch (error) { if (!this.closed) row.createEl('p', { text: error instanceof Error ? error.message : 'Could not open the note.' }); }
+              finally { if (!this.closed) open.disabled = false; }
+            };
+          }
+          if (health.noInbound.length > 100) details.createEl('p', { text: `Showing 100 of ${health.noInbound.length} candidates.` });
+        }
+      } catch (error) {
+        if (!this.closed) curatorArea.createEl('p', { text: error instanceof Error ? error.message : 'Could not prepare the Corpus link report.' });
+      } finally { curatorLoading = false; if (!this.closed) locked(false); }
+    };
     this.registerDomEvent(query, 'input', invalidate);
     this.registerDomEvent(targets, 'change', () => { invalidate(); prepare.disabled = !targets.selectedOptions.length; });
     this.registerDomEvent(consent, 'change', () => { send.disabled = !context || !consent.checked || !!this.abort; });

@@ -51,6 +51,11 @@
 .pga-workbench .pga-proposal-change h5,
 .pga-workbench .pga-proposal-change p { margin: 0; }
 .pga-workbench .pga-proposal-change blockquote { margin: 0; }
+.pga-workbench .pga-curator { display: grid; gap: 8px; }
+.pga-workbench .pga-curator h3,
+.pga-workbench .pga-curator h4,
+.pga-workbench .pga-curator p { margin: 0; }
+.pga-workbench .pga-curator-finding { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--background-modifier-border); border-radius: var(--pga-chat-radius); }
 .pga-chat .pga-chat-context-actions, .pga-chat .pga-chat-composer-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .pga-chat .pga-chat-skill-section { padding: 8px 10px; border: 1px solid var(--background-modifier-border); border-radius: var(--pga-chat-radius); background: var(--pga-chat-subtle); }
 .pga-chat .pga-chat-skill-section > summary { cursor: pointer; font-weight: 600; }

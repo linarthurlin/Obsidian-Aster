@@ -19,7 +19,10 @@ it('requires explicit scope loading, context preview and consent; changing query
     if(options.type)(el as any).type=options.type;if(options.placeholder)(el as any).placeholder=options.placeholder;
     if(options.value!==undefined)(el as any).value=options.value;for(const [key,value]of Object.entries(options.attr||{}))el.setAttribute(key,String(value));this.appendChild(el);return el};
   proto.createDiv=function(options:any){return this.createEl('div',options)};proto.createSpan=function(options:any){return this.createEl('span',options)};
-  const app={vault:{adapter:{getBasePath:()=>home}},workspace:{detachLeavesOfType:()=>{}}};
+  const app={vault:{adapter:{getBasePath:()=>home}},workspace:{detachLeavesOfType:()=>{}},metadataCache:{
+    resolvedLinks:{'Selected/Note.md':{'Selected/Source.md':1}},
+    unresolvedLinks:{'Selected/Source.md':{'Missing synthetic target':1}},
+  }};
   class Plugin {app=app;async loadData(){return {corpusFolder:'Selected',executable:process.execPath}}registerView(id:string,f:any){factories.set(id,f)}addCommand(){}addSettingTab(){}}
   class FuzzySuggestModal {}
   class TFile {}
@@ -31,6 +34,11 @@ it('requires explicit scope loading, context preview and consent; changing query
   const Agent=(module.exports as any).default,plugin=new Agent();await plugin.onload();const view=factories.get('knowledge-agent-workbench')({});await view.onOpen();
   const button=(text:string)=>Array.from(doc.querySelectorAll('button')).find(b=>b.textContent!.includes(text))!;
   const invoke=async(el:any)=>{await el.onclick?.(new dom.window.Event('click'))};
+  await invoke(button('Run Corpus link health'));
+  expect(doc.body.textContent).toContain('Missing synthetic target');
+  expect(doc.body.textContent).toContain('metadata only');
+  expect(doc.body.textContent).toContain('does not read note bodies');
+  expect(spawned).toBe(0);
   expect(doc.querySelector('pre')).toBeNull();expect(spawned).toBe(0);
   await invoke(button('Ask Codex'));expect(spawned).toBe(0);
   await invoke(button('Load scoped notes'));const target=doc.querySelector('select')!;target.value='Note.md';target.dispatchEvent(new dom.window.Event('change'));

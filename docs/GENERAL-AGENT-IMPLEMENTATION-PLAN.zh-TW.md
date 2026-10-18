@@ -40,7 +40,8 @@ ROADMAP 未完成項目仍有效：擴大繁中／混合語言檢索品質、真
 - Chat 可在設定 Corpus 中以 Obsidian fuzzy picker 選擇單篇 Markdown note，或選擇 Corpus 子資料夾作為 context；path-only 清單不讀筆記內容，選取後才讀單一筆記或至多 6 篇資料夾筆記。Folder context 總量上限 24,000 字元，超限不截斷、不建立部分預覽；完整來源快照先顯示，加入 composer 後仍須自行按 Send。Aster 設定的 Corpus folder chooser 使用官方 `Vault.getAllFolders(false)`／`TFolder` 取得可見資料夾中繼資料，以 `visiblePath` 過濾、以既有 `resolveScope` 驗證並保存；文字路徑輸入仍可用。此設計採「API metadata + Obsidian fuzzy picker + Aster path validator」，比只輸入路徑更容易選對資料夾，又避免讀取 note bodies。[Obsidian Vault API](https://docs.obsidian.md/Reference/TypeScript%2BAPI/App/vault)；Copilot 的設定仍採 folder path 欄位加明確 Apply/validation，可作為保留文字輸入的參照：[Copilot BasicSettings](https://github.com/logancyang/obsidian-copilot/blob/master/src/settings/v2/components/BasicSettings.tsx)。
 - Skills MVP 已實作：遵循 Agent Skills `SKILL.md` 的 name/description/frontmatter 慣例，存在使用者 profile 的 `.aster/skills`，最多 40 個；支援建立、編輯、刪除和 slash menu 呼叫。只讀取單一 `SKILL.md`，不解析其引用檔、不執行 scripts、不授予工具或 Vault 權限；呼叫時完整展開成可見、可編輯的 user message，並保留在本機 transcript。`allowed-tools` 不予採用，因為 Aster 權限由 Aster 自己的 Tool Router 管理。
 - Workbench 現可用 Ctrl-click 選取 2–4 篇 Corpus 目標；target 文字合計上限 48,000 字元，來源證據最多 6 段。精確 context 先完整預覽並明確同意，再讓 Codex 只回傳屬於所選路徑的 operation。每篇提案分開顯示 diff 和來源摘錄，勾選只核准該篇；每次套用建立單筆 transaction journal，可各自 rollback。合成端到端測試使用假的 provider process 與 disposable Corpus，證明一項套用／回復不影響另一個未核准目標。
-- 尚未實作工具活動與一般 Chat 中核准後 Obsidian 操作、Knowledge Studio 整合、Research Desk 或 Vault Curator。Corpus 搜尋、範圍內 backlinks 與開啟筆記、Folder chooser、單篇與受限資料夾 context、受限多目標 context、journal recovery 和跨重啟歷史 UI 已有合成測試；真實 Obsidian runtime 仍待驗證。
+- Vault Curator 已有第一個明確觸發的 Corpus link-health 報告：只查詢選定 Corpus note paths 對應的 Obsidian `MetadataCache.unresolvedLinks`／`resolvedLinks` source keys，不列舉其他 Vault 的 link map，不讀 note bodies、不呼叫模型、不寫入。未解析連結及「沒有 Corpus 內入向連結」都標為 review candidate，並提供重新驗證路徑後開啟來源 note。設計採 Vault Inspector 的 read-only findings/evidence 方向；格式／YAML lint 留給成熟的 Obsidian Linter，不重做其規則。[Obsidian `unresolvedLinks` API](https://docs.obsidian.md/Reference/TypeScript%20API/MetadataCache/unresolvedLinks)；[Vault Inspector link checks and confidence model](https://github.com/rogerdigital/vault-inspector#broken-links)；[Obsidian Linter](https://github.com/platers/obsidian-linter)。
+- 尚未實作工具活動與一般 Chat 中核准後 Obsidian 操作、Knowledge Studio 整合、Research Desk 或完整 Vault Curator 規則集。Corpus 搜尋、範圍內 backlinks 與開啟筆記、Folder chooser、單篇與受限資料夾 context、受限多目標 context、metadata-only link health、journal recovery 和跨重啟歷史 UI 已有合成測試；真實 Obsidian runtime 仍待驗證。
 
 ## ANKS 與 Building a Second Brain
 
@@ -139,7 +140,7 @@ Per-session meter 使用 Codex usage update 的 `last.totalTokens`（active cont
 
 ### Phase 4 — Research Desk 與 Vault Curator
 
-Research Desk 支援明確選定的 Markdown/PDF/Zotero annotation，保留 citation key、頁碼／heading locator、source hash 和摘錄，輸出引用式 synthesis/bibliography proposal。Curator 由 deterministic rules 產生 findings，AI 只解釋或提議修復；格式規則沿用 Linter，不做無人審核批次整理。
+Research Desk 支援明確選定的 Markdown/PDF/Zotero annotation，保留 citation key、頁碼／heading locator、source hash 和摘錄，輸出引用式 synthesis/bibliography proposal。Curator 由 deterministic rules 產生 findings，AI 只解釋或提議修復；首個 link-health 切片只讀選定 Corpus 的 Obsidian link metadata，並把未解析目標及 Corpus 內無入向連結筆記列作候選，不宣稱必定損壞或孤立。後續評估 missing attachment／empty note／frontmatter consistency 前，需先明確訂資料來源與讀取預算；格式規則沿用 Linter，不做無人審核批次整理。
 
 ### Phase 5 — Tasks/Dataview/Canvas/Excalidraw adapters
 

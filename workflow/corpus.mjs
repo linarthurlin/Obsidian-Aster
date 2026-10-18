@@ -47,6 +47,37 @@ export function getCorpusBacklinks(folder, targetPath, notePaths, resolvedLinks)
     .map(([source]) => source.slice(prefix.length))
     .sort((a, b) => a.localeCompare(b));
 }
+export function getCorpusLinkHealth(folder, notePaths, resolvedLinks, unresolvedLinks) {
+  if (!visiblePath(folder)) throw new Error('Choose a visible Corpus folder to inspect link health.');
+  if (!Array.isArray(notePaths) || notePaths.length > LIMITS.files
+    || notePaths.some(path => !visiblePath(path) || !path.endsWith('.md')))
+    throw new Error('Corpus note listing is invalid or exceeds the file limit.');
+  if (!resolvedLinks || typeof resolvedLinks !== 'object' || !unresolvedLinks || typeof unresolvedLinks !== 'object')
+    throw new Error('Obsidian link metadata is unavailable; no report was produced.');
+  const prefix = folder + '/';
+  const allowed = new Set(notePaths.map(path => prefix + path));
+  const unresolved = [];
+  for (const source of allowed) {
+    const links = unresolvedLinks[source];
+    if (!links || typeof links !== 'object') continue;
+    for (const [target, count] of Object.entries(links)) {
+      if (!target.trim() || !Number.isSafeInteger(count) || count <= 0) continue;
+      unresolved.push({ sourcePath: source.slice(prefix.length), target, count });
+    }
+  }
+  unresolved.sort((a, b) => a.sourcePath.localeCompare(b.sourcePath) || a.target.localeCompare(b.target));
+  const inboundCounts = new Map();
+  for (const source of allowed) {
+    const targets = resolvedLinks[source];
+    if (!targets || typeof targets !== 'object') continue;
+    for (const [target, count] of Object.entries(targets)) {
+      if (!allowed.has(target) || source === target || !Number.isSafeInteger(count) || count <= 0) continue;
+      inboundCounts.set(target, (inboundCounts.get(target) || 0) + count);
+    }
+  }
+  const noInbound = notePaths.filter(path => !inboundCounts.has(prefix + path)).sort((a, b) => a.localeCompare(b));
+  return { unresolved, noInbound };
+}
 async function boundedRead(root, path) {
   const absolute = await safePath(root, path), info = await lstat(absolute);
   if (info.size > LIMITS.bytes) throw new Error('Note exceeds the 200KB limit: ' + path);
