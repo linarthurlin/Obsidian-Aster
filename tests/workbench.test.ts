@@ -2,9 +2,10 @@ import { it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { createRequire } from 'node:module';
 import { runInNewContext } from 'node:vm';
-import { readFile, mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { apply, propose, review } from '../workflow/knowledge.mjs';
 const require = createRequire(import.meta.url);
 it('requires explicit scope loading, context preview and consent; changing query invalidates approval', async () => {
   const home=await mkdtemp(join(tmpdir(),'ka-ui-'));await mkdir(join(home,'Selected'));
@@ -26,7 +27,7 @@ it('requires explicit scope loading, context preview and consent; changing query
   class ItemView {app=app;contentEl=doc.createElement('div');constructor(){doc.querySelector('main')!.appendChild(this.contentEl)}registerDomEvent(el:any,event:string,fn:any){el.addEventListener(event,fn)}}
   const module={exports:{}};
   runInNewContext(await readFile('dist/plugin/main.js','utf8'),{module,exports:module.exports,process,Buffer,AbortController,setTimeout,clearTimeout,
-    require:(name:string)=>name==='obsidian'?{Plugin,ItemView,PluginSettingTab:class{},Setting:class{},FuzzySuggestModal,TFile,TFolder}:name==='node:child_process'?{spawn:()=>{spawned++;throw new Error('NETWORK_NOT_ALLOWED')}}:require(name)});
+    require:(name:string)=>name==='obsidian'?{Plugin,ItemView,PluginSettingTab:class{},Setting:class{},FuzzySuggestModal,TFile,TFolder}:name==='node:child_process'?{spawn:()=>{spawned++;throw new Error('NETWORK_NOT_ALLOWED')}}:name==='node:os'?{...require('node:os'),homedir:()=>home}:require(name)});
   const Agent=(module.exports as any).default,plugin=new Agent();await plugin.onload();const view=factories.get('knowledge-agent-workbench')({});await view.onOpen();
   const button=(text:string)=>Array.from(doc.querySelectorAll('button')).find(b=>b.textContent!.includes(text))!;
   const invoke=async(el:any)=>{await el.onclick?.(new dom.window.Event('click'))};
@@ -47,5 +48,32 @@ it('requires explicit scope loading, context preview and consent; changing query
   await writeFile(join(home,'Selected/Source.md'),'Bayesian prior combines with observations.');await invoke(button('Preview context'));
   consent.checked=true;consent.dispatchEvent(new dom.window.Event('change'));await invoke(button('Ask Codex'));
   expect(spawned).toBe(1);expect(doc.body.textContent).toContain('Cannot start Codex CLI');
-  await view.onClose();expect(view.contentEl.childElementCount).toBe(0);dom.window.close();
+  await view.onClose();expect(view.contentEl.childElementCount).toBe(0);
+
+  const corpus=join(home,'Selected');
+  const original='Synthetic target before-state.\n';
+  await writeFile(join(corpus,'History.md'),original);
+  await writeFile(join(corpus,'HistorySource.md'),'Synthetic history evidence.');
+  const plan=await propose(corpus,[{path:'History.md',after:'Synthetic target before-state.\nSupported addition.\n',reason:'Test persistent history review',sources:[{path:'HistorySource.md',excerpt:'Synthetic history evidence.'}]}]);
+  const transactionDirectory=join(home,'.knowledge-agent','transactions');
+  await mkdir(transactionDirectory,{recursive:true});
+  const receipt=join(transactionDirectory,plan.id+'-synthetic.private.json');
+  await apply(corpus,plan,review(plan).digest,receipt);
+
+  const restartedPlugin=new Agent();await restartedPlugin.onload();
+  const historyView=factories.get('knowledge-agent-workbench')({});await historyView.onOpen();
+  await invoke(button('Transaction history'));
+  expect(doc.body.textContent).toContain('applied');
+  await invoke(button('Review diffs and status'));
+  expect(doc.body.textContent).toContain('Supported addition.');
+  expect(doc.body.textContent).toContain('after');
+  const rollbackButton=button('Rollback this transaction') as HTMLButtonElement;
+  expect(rollbackButton.disabled).toBe(true);
+  const historyApproval=doc.querySelector('.pga-transaction-detail input[type=checkbox]') as HTMLInputElement;
+  historyApproval.checked=true;historyApproval.dispatchEvent(new dom.window.Event('change'));
+  expect(rollbackButton.disabled).toBe(false);
+  await invoke(rollbackButton);
+  expect(await readFile(join(corpus,'History.md'),'utf8')).toBe(original);
+  expect(JSON.parse(await readFile(receipt,'utf8')).status).toBe('rolled-back');
+  await historyView.onClose();await rm(home,{recursive:true,force:true});dom.window.close();
 });

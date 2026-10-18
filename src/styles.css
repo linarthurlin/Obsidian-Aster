@@ -7,6 +7,14 @@
 .pga-workbench .pga-actions { display:flex; flex-wrap:wrap; gap:10px; margin-block:14px; }
 .pga-workbench .pga-consent { display:flex; align-items:flex-start; gap:10px; margin-block:16px; max-width:80ch; }
 .pga-workbench .pga-code { white-space:pre-wrap; overflow-wrap:anywhere; max-height:420px; overflow:auto; padding:18px; border-radius:var(--pga-radius); background:var(--background-secondary); color:var(--pga-text); user-select:text; }
+.pga-workbench .pga-transaction-history { display:grid; gap:12px; }
+.pga-workbench .pga-transaction-entry { padding:14px; border:1px solid var(--background-modifier-border); border-radius:var(--pga-radius); background:var(--background-secondary); }
+.pga-workbench .pga-transaction-entry > :first-child { margin-top:0; }
+.pga-workbench .pga-transaction-entry > :last-child { margin-bottom:0; }
+.pga-workbench .pga-transaction-detail { display:grid; gap:8px; margin-top:12px; }
+.pga-workbench .pga-transaction-detail details { padding:10px; border:1px solid var(--background-modifier-border); border-radius:calc(var(--pga-radius) * .75); }
+.pga-workbench .pga-transaction-detail summary { cursor:pointer; font-weight:600; }
+.pga-workbench .pga-transaction-targets { font-family:var(--font-monospace); overflow-wrap:anywhere; }
 .pga-workbench blockquote { border-inline-start:3px solid var(--pga-accent); padding-inline-start:14px; white-space:pre-wrap; }
 .pga-workbench button:focus-visible { outline:2px solid var(--pga-accent); outline-offset:3px; }
 

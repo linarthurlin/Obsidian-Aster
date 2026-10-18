@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtemp, mkdir, readFile, writeFile, symlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { propose, review, apply, rollback, rollbackTransactionJournal, inspectTransactionJournal, recoverTransactionJournal, safePath, hash, diff } from '../workflow/knowledge.mjs';
+import { propose, review, apply, rollback, rollbackTransactionJournal, inspectTransactionJournal, listTransactionJournals, readTransactionReview, recoverTransactionJournal, safePath, hash, diff } from '../workflow/knowledge.mjs';
 async function fixture() {
   const home = await mkdtemp(join(tmpdir(), 'glass-workflow-'));
   const vault = join(home, 'vault'); await mkdir(vault);
@@ -137,5 +137,32 @@ describe('offline review boundary', () => {
     expect((await inspectTransactionJournal(f.vault, receipt)).recovery).toMatchObject({
       action: 'rollback', restoredCount: 1,
     });
+  });
+  it('lists private journals by Corpus and loads the exact saved review only on request', async () => {
+    const f = await fixture();
+    const plan = await propose(f.vault, f.operations);
+    const transactionDirectory = join(f.home, 'transactions');
+    await mkdir(transactionDirectory);
+    const receipt = join(transactionDirectory, plan.id + '-synthetic.private.json');
+    await apply(f.vault, plan, review(plan).digest, receipt);
+
+    const history = await listTransactionJournals(f.vault, transactionDirectory);
+    expect(history.skipped).toBe(0);
+    expect(history.items).toEqual([{
+      path: receipt,
+      status: 'applied',
+      planId: plan.id,
+      createdAt: plan.createdAt,
+      targetPaths: ['Note.md'],
+    }]);
+    const selected = await readTransactionReview(f.vault, receipt);
+    expect(selected.changes[0].diff).toContain('+Exact evidence. [[Source]]');
+    expect(selected.targets).toEqual([{ path: 'Note.md', state: 'after' }]);
+
+    const otherVault = join(f.home, 'other-vault');
+    await mkdir(otherVault);
+    const unrelated = await listTransactionJournals(otherVault, transactionDirectory);
+    expect(unrelated.items).toEqual([]);
+    expect(unrelated.skipped).toBe(1);
   });
 });

@@ -1,5 +1,5 @@
 // Offline proposal/review engine. No model, network calls, automatic classification or background writes.
-import { readFile, writeFile, lstat, realpath, rename, unlink, mkdir, stat, open } from 'node:fs/promises';
+import { readFile, writeFile, lstat, realpath, rename, unlink, mkdir, stat, open, readdir } from 'node:fs/promises';
 import { resolve, relative, isAbsolute, join, dirname, basename, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 export const hash = text => createHash('sha256').update(text).digest('hex');
@@ -217,6 +217,56 @@ export async function inspectTransactionJournal(root, journalPath) {
       restoredCount: Array.isArray(savedRecovery.restored) ? savedRecovery.restored.length : 0,
       conflicts: Array.isArray(savedRecovery.conflicts) ? savedRecovery.conflicts : [],
     },
+  };
+}
+export async function listTransactionJournals(rootPath, journalDirectory, limit = 50) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('Transaction history limit must be between 1 and 100');
+  const root = await realpath(rootPath);
+  let directory = resolve(journalDirectory);
+  if (!isOutside(root, directory)) throw new Error('Transaction history must be outside the vault');
+  try { directory = await realpath(directory); }
+  catch (error) { if (error?.code === 'ENOENT') return { items: [], skipped: 0 }; throw error; }
+  if (!isOutside(root, directory)) throw new Error('Transaction history must resolve outside the vault');
+  const directoryInfo = await lstat(directory);
+  if (directoryInfo.isSymbolicLink() || !directoryInfo.isDirectory()) throw new Error('Transaction history path must be a plain local directory');
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.private.json')) continue;
+    const path = join(directory, entry.name);
+    try {
+      const info = await lstat(path);
+      if (info.isSymbolicLink() || !info.isFile()) continue;
+      files.push({ path, modifiedAt: info.mtimeMs });
+    } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+  }
+  files.sort((a, b) => b.modifiedAt - a.modifiedAt || a.path.localeCompare(b.path));
+  let skipped = Math.max(0, files.length - 500);
+  const items = [];
+  for (const file of files.slice(0, 500)) {
+    try {
+      const journal = await resolveJournal(root, file.path);
+      items.push({
+        path: journal.path,
+        status: journal.transaction.status,
+        planId: journal.transaction.plan.id,
+        createdAt: journal.transaction.plan.createdAt,
+        targetPaths: journal.transaction.plan.operations.map(op => op.path),
+      });
+    } catch { skipped++; }
+  }
+  items.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)) || a.path.localeCompare(b.path));
+  return { items: items.slice(0, limit), skipped: skipped + Math.max(0, items.length - limit) };
+}
+export async function readTransactionReview(root, journalPath) {
+  const journal = await resolveJournal(root, journalPath);
+  return {
+    status: journal.transaction.status,
+    digest: journal.transaction.digest,
+    planId: journal.transaction.plan.id,
+    createdAt: journal.transaction.plan.createdAt,
+    changes: review(journal.transaction.plan).changes,
+    targets: await inspectTargets(journal.root, journal.transaction.plan),
   };
 }
 async function restoreJournal(root, journalPath, allowedStatuses) {

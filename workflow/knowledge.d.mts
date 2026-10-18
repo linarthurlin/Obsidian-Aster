@@ -3,5 +3,7 @@ export function safePath(rootPath:string,path:string,mustExist?:boolean):Promise
 export function apply(root:string,plan:Plan,digest:string,transactionPath:string):Promise<{status:string;updated:number}>;
 export function rollback(root:string,transaction:unknown):Promise<{status:string;restored:number}>;
 export function inspectTransactionJournal(root:string,journalPath:string):Promise<{status:string;digest:string;planId:string;createdAt:string;targets:{path:string;state:'before'|'after'|'conflict'|'missing'}[];recovery?:{action?:string;startedAt?:string;updatedAt?:string;completedAt?:string;restoredCount:number;conflicts:string[]}}>;
+export function listTransactionJournals(root:string,journalDirectory:string,limit?:number):Promise<{items:{path:string;status:string;planId:string;createdAt:string;targetPaths:string[]}[];skipped:number}>;
+export function readTransactionReview(root:string,journalPath:string):Promise<{status:string;digest:string;planId:string;createdAt:string;changes:{path:string;reason:string;sources:{path:string;hash:string;excerpt:string;locator:string}[];related:unknown[];diff:string}[];targets:{path:string;state:'before'|'after'|'conflict'|'missing'}[]}>;
 export function recoverTransactionJournal(root:string,journalPath:string):Promise<{status:string;restored:number;alreadyBefore:number}>;
 export function rollbackTransactionJournal(root:string,journalPath:string):Promise<{status:string;restored:number;alreadyBefore:number}>;

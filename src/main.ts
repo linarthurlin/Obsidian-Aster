@@ -7,7 +7,7 @@ import { normalizeSettings, type Settings } from './settings';
 import { ChatView, ASTER_CHAT_VIEW } from './chat-view';
 import { listNotes, visiblePath, resolveScope, prepareContext, contextDigest, assertContextFresh, suggestionPlan, type Context, type Reviewed } from '../workflow/corpus.mjs';
 import { runCodex } from '../workflow/codex.mjs';
-import { apply, rollbackTransactionJournal } from '../workflow/knowledge.mjs';
+import { apply, listTransactionJournals, readTransactionReview, recoverTransactionJournal, rollbackTransactionJournal } from '../workflow/knowledge.mjs';
 const VIEW = 'knowledge-agent-workbench';
 class CorpusFolderPicker extends FuzzySuggestModal<TFolder> {
   constructor(app: App, private folders: TFolder[], private onChooseFolder: (folder: TFolder) => void) {
@@ -48,10 +48,91 @@ class Workbench extends ItemView {
     const status = root.createDiv({ cls: 'pga-status', attr: { role: 'status', 'aria-live': 'polite' }, text: 'No note bodies loaded. Nothing sent.' });
     const contextArea = root.createDiv({ cls: 'pga-context' });
     const resultArea = root.createDiv({ cls: 'pga-results' });
+    const historyActions = root.createDiv({ cls: 'pga-actions' });
+    const historyButton = historyActions.createEl('button', { text: 'Transaction history / 交易紀錄' });
+    const historyArea = root.createDiv({ cls: 'pga-results pga-transaction-history' });
     let corpus = '', context: Context | undefined, reviewed: Reviewed | null = null, receipt = '';
+    let historyLoading = false;
     const invalidate = () => { ++this.generation; context = undefined; reviewed = null; consent.checked = false; send.disabled = true; contextArea.empty(); resultArea.empty(); };
     const report = (error: unknown) => { if (!this.closed) status.setText(error instanceof Error ? error.message : 'Operation failed.'); };
-    const locked = (busy: boolean) => { load.disabled = busy; prepare.disabled = busy || !targets.value; query.disabled = busy; targets.disabled = busy; consent.disabled = busy; send.disabled = busy || !context || !consent.checked; cancel.disabled = !busy; };
+    const locked = (busy: boolean) => { load.disabled = busy; prepare.disabled = busy || !targets.value; query.disabled = busy; targets.disabled = busy; consent.disabled = busy; send.disabled = busy || !context || !consent.checked; cancel.disabled = !busy; historyButton.disabled = busy || historyLoading; };
+    const showTransactionReview = async (transaction: { path: string; status: string; targetPaths: string[] }, container: HTMLElement, selectedCorpus: string) => {
+      container.empty();
+      try {
+        if (await this.plugin.corpus() !== selectedCorpus) throw new Error('Corpus changed. Reopen transaction history for the selected scope.');
+        const detail = await readTransactionReview(selectedCorpus, transaction.path);
+        if (this.closed) return;
+        container.createEl('h4', { text: 'Transaction details · ' + detail.status });
+        for (const change of detail.changes) {
+          const section = container.createEl('details');
+          section.createEl('summary', { text: change.path + ' · ' + change.reason });
+          section.createEl('pre', { text: change.diff, cls: 'pga-code' });
+          for (const source of change.sources) {
+            section.createEl('h5', { text: source.path + (source.locator ? ' · ' + source.locator : '') });
+            section.createEl('blockquote', { text: source.excerpt });
+          }
+        }
+        const targetList = container.createEl('ul', { cls: 'pga-transaction-targets' });
+        for (const target of detail.targets) targetList.createEl('li', { text: target.path + ' · ' + target.state });
+        container.createEl('p', { text: 'Review loads only this saved transaction and hashes its scoped targets locally. It does not send note text to Codex.' });
+        const safe = detail.targets.every(target => target.state === 'before' || target.state === 'after');
+        const canRecover = ['pending', 'recovering', 'recovery-required'].includes(detail.status);
+        const canRollback = detail.status === 'applied';
+        if (!canRecover && !canRollback) {
+          container.createEl('p', { text: 'This transaction has no available recovery action.' });
+          return;
+        }
+        const approval = container.createEl('label', { cls: 'pga-consent' });
+        const checkbox = approval.createEl('input', { type: 'checkbox' }) as HTMLInputElement;
+        approval.createSpan({ text: 'I reviewed these diffs and explicitly approve restoring the before-state.' });
+        checkbox.disabled = !safe;
+        const action = container.createEl('button', { text: canRecover ? 'Recover interrupted transaction' : 'Rollback this transaction' });
+        action.disabled = !safe || !checkbox.checked;
+        checkbox.onchange = () => { action.disabled = !safe || !checkbox.checked; };
+        action.onclick = async () => {
+          if (!safe || !checkbox.checked) return;
+          action.disabled = true; locked(true);
+          try {
+            if (await this.plugin.corpus() !== selectedCorpus) throw new Error('Corpus changed. No transaction files were restored.');
+            const result = canRecover
+              ? await recoverTransactionJournal(selectedCorpus, transaction.path)
+              : await rollbackTransactionJournal(selectedCorpus, transaction.path);
+            container.createEl('p', { text: 'Transaction restored to its before-state. ' + result.restored + ' file(s) restored.' });
+            status.setText('Transaction restored. Later edits were protected by target hash checks.');
+          } catch (error) {
+            container.createEl('p', { text: error instanceof Error ? error.message : 'Transaction recovery failed.' });
+            action.disabled = false;
+          } finally { if (!this.closed) locked(false); }
+        };
+        if (!safe) container.createEl('p', { text: 'Recovery is blocked because a target is missing or differs from both reviewed versions. No files were changed.' });
+      } catch (error) {
+        if (!this.closed) container.createEl('p', { text: error instanceof Error ? error.message : 'Could not load this transaction.' });
+      }
+    };
+    const loadHistory = async () => {
+      if (historyLoading) return;
+      historyLoading = true; historyButton.disabled = true; historyArea.empty();
+      try {
+        const selectedCorpus = await this.plugin.corpus();
+        const historyDirectory = join(homedir(), '.knowledge-agent', 'transactions');
+        const history = await listTransactionJournals(selectedCorpus, historyDirectory);
+        if (this.closed) return;
+        historyArea.createEl('h3', { text: 'Local transaction history' });
+        historyArea.createEl('p', { text: 'Private journals are filtered to the configured Corpus. Nothing is sent to Codex.' });
+        if (history.skipped) historyArea.createEl('p', { text: history.skipped + ' unreadable, unrelated or older transaction record(s) were skipped.' });
+        if (!history.items.length) historyArea.createEl('p', { text: 'No Aster transaction journals were found for this Corpus.' });
+        for (const transaction of history.items) {
+          const entry = historyArea.createDiv({ cls: 'pga-transaction-entry' });
+          entry.createEl('h4', { text: transaction.createdAt + ' · ' + transaction.status });
+          entry.createEl('p', { text: transaction.targetPaths.join(', ') });
+          const details = entry.createDiv({ cls: 'pga-transaction-detail' });
+          const reviewButton = entry.createEl('button', { text: 'Review diffs and status' });
+          reviewButton.onclick = () => showTransactionReview(transaction, details, selectedCorpus);
+        }
+      } catch (error) { if (!this.closed) historyArea.createEl('p', { text: error instanceof Error ? error.message : 'Could not load transaction history.' }); }
+      finally { historyLoading = false; if (!this.closed) historyButton.disabled = false; }
+    };
+    historyButton.onclick = () => loadHistory();
     this.registerDomEvent(query, 'input', invalidate);
     this.registerDomEvent(targets, 'change', () => { invalidate(); prepare.disabled = !targets.value; });
     this.registerDomEvent(consent, 'change', () => { send.disabled = !context || !consent.checked || !!this.abort; });
