@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { lstat } from 'node:fs/promises';
 import { listCodexModels } from '../workflow/codex-catalog.mjs';
 import { applyChatCommand, CHAT_COMMANDS, getChatCommandMatches } from '../workflow/chat-commands.mjs';
-import { listNotes, LIMITS, searchCorpus } from '../workflow/corpus.mjs';
+import { getCorpusBacklinks, listNotes, LIMITS, searchCorpus } from '../workflow/corpus.mjs';
 import { defaultExecutable } from '../workflow/codex.mjs';
 import { CodexAppServerClient, type ThreadUsage } from '../workflow/codex-app-server.mjs';
 import { defaultChatStoreRoot, loadChatHistory, saveChatHistory, deleteChatHistory } from '../workflow/chat-store.mjs';
@@ -227,6 +227,15 @@ export class ChatView extends ItemView {
     const leaf = this.app.workspace.getLeaf('tab');
     await leaf.openFile(file);
     await this.app.workspace.revealLeaf(leaf);
+  }
+  private async findCorpusBacklinks(relativePath: string) {
+    if (!this.plugin.settings.corpusFolder) throw new Error('Choose a Corpus folder before viewing backlinks.');
+    const selectedFolder = this.plugin.settings.corpusFolder;
+    const root = await this.plugin.corpus();
+    const notes = await listNotes(root);
+    const backlinks = getCorpusBacklinks(selectedFolder, relativePath, notes, this.app.metadataCache.resolvedLinks);
+    if (await this.plugin.corpus() !== root || this.plugin.settings.corpusFolder !== selectedFolder) throw new Error('Corpus changed. Reopen the search result before viewing backlinks.');
+    return backlinks;
   }
   private async openScopedNotePicker() {
     if (this.clearingChats) return;
@@ -662,6 +671,43 @@ export class ChatView extends ItemView {
             } catch (error) {
               searchStatus.setText(error instanceof Error ? error.message : 'Could not open this Corpus note.');
             } finally { open.disabled = false; }
+          };
+          const backlinkPanel = entry.createDiv({ cls: 'pga-chat-corpus-backlinks', attr: { role: 'list', 'aria-label': 'Backlinks in configured Corpus' } });
+          backlinkPanel.hidden = true;
+          const backlinksButton = entry.createEl('button', { text: 'Show Corpus backlinks', attr: { 'aria-expanded': 'false' } });
+          backlinksButton.onclick = async () => {
+            if (!backlinkPanel.hidden) {
+              backlinkPanel.hidden = true;
+              backlinksButton.setAttribute('aria-expanded', 'false');
+              return;
+            }
+            backlinkPanel.hidden = false;
+            backlinkPanel.empty();
+            backlinkPanel.createDiv({ text: 'Loading links from Obsidian’s metadata index…' });
+            backlinksButton.disabled = true;
+            try {
+              const sources = await this.findCorpusBacklinks(hit.path);
+              backlinkPanel.empty();
+              if (!sources.length) backlinkPanel.createDiv({ cls: 'pga-chat-list-empty', text: 'No direct backlinks from notes in the configured Corpus.' });
+              for (const source of sources) {
+                const sourceItem = backlinkPanel.createDiv({ cls: 'pga-chat-corpus-backlink', attr: { role: 'listitem' } });
+                sourceItem.createEl('span', { text: source });
+                const openSource = sourceItem.createEl('button', { text: 'Open in a new tab', attr: { 'aria-label': 'Open backlink source ' + source + ' in a new tab' } });
+                openSource.onclick = async () => {
+                  openSource.disabled = true;
+                  try {
+                    await this.openCorpusNote(source);
+                    searchStatus.setText('Opened backlink source ' + source + ' in a new tab.');
+                  } catch (error) {
+                    searchStatus.setText(error instanceof Error ? error.message : 'Could not open this backlink source.');
+                  } finally { openSource.disabled = false; }
+                };
+              }
+            } catch (error) {
+              backlinkPanel.empty();
+              backlinkPanel.createDiv({ cls: 'pga-chat-list-empty', text: error instanceof Error ? error.message : 'Could not read Corpus backlinks.' });
+            } finally { backlinksButton.disabled = false; }
+            backlinksButton.setAttribute('aria-expanded', 'true');
           };
         }
       } catch (error) {

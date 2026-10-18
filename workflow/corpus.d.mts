@@ -7,6 +7,7 @@ export interface Reviewed { plan:Plan; review:{digest:string;changes:Array<{path
 export function visiblePath(path:unknown):boolean;
 export function resolveScope(vault:string,folder:string):Promise<string>;
 export function listNotes(root:string):Promise<string[]>;
+export function getCorpusBacklinks(folder:string,targetPath:string,notePaths:string[],resolvedLinks:Record<string,Record<string,number>>):string[];
 export function searchCorpus(root:string,query:string,limit?:number):Promise<{query:string;scannedFiles:number;scannedBytes:number;truncated:boolean;results:CorpusSearchResult[]}>;
 export function prepareContext(root:string,query:string,target:string):Promise<Context>;
 export function contextDigest(context:Context):string;

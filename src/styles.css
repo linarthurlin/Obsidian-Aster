@@ -81,6 +81,10 @@
 .pga-chat .pga-chat-corpus-search-result > span { color: var(--pga-chat-muted); font-size: var(--font-smaller); }
 .pga-chat .pga-chat-corpus-search-result > pre { grid-column: 1 / -1; margin: 0; max-height: 6.5em; overflow: auto; white-space: pre-wrap; color: var(--pga-chat-muted); font-family: var(--font-text); font-size: var(--font-smaller); }
 .pga-chat .pga-chat-corpus-search-result > button { grid-column: 1 / -1; justify-self: end; }
+.pga-chat .pga-chat-corpus-backlinks { grid-column: 1 / -1; display: grid; gap: 6px; padding: 8px; border-radius: calc(var(--pga-chat-radius) * .7); background: var(--pga-chat-subtle); }
+.pga-chat .pga-chat-corpus-backlinks[hidden] { display: none; }
+.pga-chat .pga-chat-corpus-backlink { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: var(--font-smaller); }
+.pga-chat .pga-chat-corpus-backlink > span { min-width: 0; overflow-wrap: anywhere; }
 .pga-chat .pga-context-meter, .pga-chat .pga-chat-status { padding: 9px 12px; border-radius: calc(var(--pga-chat-radius) * .75); color: var(--pga-chat-muted); background: var(--pga-chat-subtle); font-size: var(--font-smaller); }
 .pga-chat .pga-chat-messages { display: flex; flex: 1; flex-direction: column; gap: 14px; min-height: 120px; padding: 14px; overflow: auto; border: 1px solid var(--background-modifier-border); border-radius: var(--pga-chat-radius); }
 .pga-chat .pga-chat-empty { margin: auto; max-width: 48ch; text-align: center; color: var(--pga-chat-muted); }

@@ -2,7 +2,7 @@ import { it, expect } from 'vitest';
 import { mkdtemp, mkdir, writeFile, readFile, symlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { prepareContext, searchCorpus, contextDigest, assertContextFresh, suggestionPlan, validateSuggestion, resolveScope, listNotes } from '../workflow/corpus.mjs';
+import { prepareContext, searchCorpus, getCorpusBacklinks, contextDigest, assertContextFresh, suggestionPlan, validateSuggestion, resolveScope, listNotes } from '../workflow/corpus.mjs';
 import { normalizeSettings } from '../src/settings';
 async function fixture() {
   const home=await mkdtemp(join(tmpdir(),'ka-corpus-')),root=join(home,'Selected');await mkdir(root);
@@ -41,6 +41,16 @@ it('searches only visible Corpus notes and returns bounded excerpts for navigati
   expect(result.results[0].path).not.toContain('Outside');
   await expect(searchCorpus(f.root,'')).rejects.toThrow('search query');
   await expect(searchCorpus(f.root,'Bayesian',51)).rejects.toThrow('between 1 and 50');
+});
+it('returns only resolved backlink sources that are members of the selected Corpus',async()=>{
+  const resolvedLinks={
+    'ResearchScope/Linker.md':{'ResearchScope/Target.md':1},
+    'Elsewhere/External.md':{'ResearchScope/Target.md':2},
+    'ResearchScope/Unlisted.md':{'ResearchScope/Target.md':1},
+  };
+  expect(getCorpusBacklinks('ResearchScope','Target.md',['Target.md','Linker.md'],resolvedLinks)).toEqual(['Linker.md']);
+  expect(getCorpusBacklinks('ResearchScope','Target.md',['Target.md'],{})).toEqual([]);
+  expect(() => getCorpusBacklinks('ResearchScope','../Target.md',['Target.md'],resolvedLinks)).toThrow('visible Corpus note');
 });
 it('rejects fabricated or out-of-scope model citations and accepts a literal no-change',async()=>{
   const f=await fixture(),context=await prepareContext(f.root,'Bayesian','Note.md');

@@ -33,6 +33,20 @@ export async function listNotes(root) {
   }
   await walk(root); return files.sort();
 }
+export function getCorpusBacklinks(folder, targetPath, notePaths, resolvedLinks) {
+  if (!visiblePath(folder) || !visiblePath(targetPath) || !targetPath.endsWith('.md')) throw new Error('Choose a visible Corpus note to inspect backlinks.');
+  if (!Array.isArray(notePaths) || notePaths.length > LIMITS.files) throw new Error('Corpus note listing is invalid or exceeds the file limit.');
+  const prefix = folder + '/';
+  const allowed = new Set(notePaths.filter(path => visiblePath(path) && path.endsWith('.md')).map(path => prefix + path));
+  const target = prefix + targetPath;
+  if (!allowed.has(target)) throw new Error('Backlink target is outside the configured Corpus.');
+  if (!resolvedLinks || typeof resolvedLinks !== 'object') return [];
+  return Object.entries(resolvedLinks)
+    .filter(([source, targets]) => allowed.has(source) && targets && typeof targets === 'object'
+      && Object.hasOwn(targets, target) && Number.isFinite(targets[target]) && targets[target] > 0)
+    .map(([source]) => source.slice(prefix.length))
+    .sort((a, b) => a.localeCompare(b));
+}
 async function boundedRead(root, path) {
   const absolute = await safePath(root, path), info = await lstat(absolute);
   if (info.size > LIMITS.bytes) throw new Error('Note exceeds the 200KB limit: ' + path);
