@@ -1,10 +1,10 @@
 {
-  "id": "personal-glass",
-  "name": "Personal Glass",
-  "version": "0.2.2",
+  "id": "knowledge-agent",
+  "name": "Knowledge Agent",
+  "version": "0.1.0",
   "minAppVersion": "1.6.0",
-  "description": "Glass appearance controls and portable Markdown insertion commands. Optional Windows native materials.",
+  "description": "Independent local-first knowledge review workbench. Initial offline workflow foundation; no model connection or automatic edits.",
   "author": "linarthurlin",
   "authorUrl": "https://github.com/linarthurlin",
-  "isDesktopOnly": false
+  "isDesktopOnly": true
 }

@@ -1,0 +1,7 @@
+{
+  "kind": "plugin",
+  "folder": "knowledge-agent",
+  "artifact": "knowledge-agent-plugin",
+  "title": "Knowledge Agent",
+  "version": "0.1.0"
+}

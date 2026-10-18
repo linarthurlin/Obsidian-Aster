@@ -5,9 +5,16 @@ const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 export async function install(vaultPath) {
   const vault = await realpath(resolve(vaultPath));
   const targets = [
-    { path: '.obsidian/themes/Personal Glass', from: 'theme', files: ['theme.css', 'manifest.json'] },
-    { path: '.obsidian/plugins/personal-glass', from: 'plugin', files: ['main.js', 'manifest.json', 'styles.css'] },
-  ];
+  {
+    "path": ".obsidian/plugins/knowledge-agent",
+    "from": "plugin",
+    "files": [
+      "main.js",
+      "manifest.json",
+      "styles.css"
+    ]
+  }
+];
   // Check every existing parent before any mutation. Junctions must not escape the selected vault.
   for (const target of targets) {
     let cursor = vault;
@@ -52,5 +59,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const index = process.argv.indexOf('--vault');
   if (index < 0 || !process.argv[index + 1]) throw new Error('Usage: npm run install:vault -- --vault <existing-vault-directory>');
   console.log(JSON.stringify(await install(process.argv[index + 1]), null, 2));
-  console.log('Installed only theme/plugin files. Enable them manually in Obsidian. No notes or existing configuration changed.');
+  console.log('Installed only Knowledge Agent plugin files. Enable it manually in Obsidian. No notes or existing configuration changed.');
 }

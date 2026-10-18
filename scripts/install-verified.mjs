@@ -33,4 +33,4 @@ const after = await snapshot();
 assert.deepEqual(after, before, 'Unexpected note/config change detected');
 await mkdir('.local', { recursive: true });
 await writeFile('.local/deployment-verification.json', JSON.stringify({ timestamp: new Date().toISOString(), verifiedFiles: Object.keys(before).length, unchanged: true, ...result }, null, 2));
-console.log(`Installed five distribution files; verified ${Object.keys(before).length} existing Markdown/config files unchanged. Nothing activated.`);
+console.log(`Installed three plugin distribution files; verified ${Object.keys(before).length} existing Markdown/config files unchanged. Nothing activated.`);

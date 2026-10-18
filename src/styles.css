@@ -1,0 +1,4 @@
+.pga-workbench { --pga-surface: var(--pg-surface, var(--background-primary)); --pga-text: var(--pg-text, var(--text-normal)); --pga-muted: var(--pg-muted, var(--text-muted)); --pga-accent: var(--pg-accent, var(--interactive-accent)); --pga-radius: var(--pg-radius, 12px); padding: 24px; overflow: auto; background: var(--pga-surface); color: var(--pga-text); }
+.pga-workbench p { max-width: 65ch; line-height: 1.7; }
+.pga-workbench .pga-status { padding: 14px; border-radius: var(--pga-radius); background: var(--background-secondary); color: var(--pga-muted); }
+@media(forced-colors: active){.pga-workbench,.pga-workbench .pga-status{background:Canvas;color:CanvasText;}}
