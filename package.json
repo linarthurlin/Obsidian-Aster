@@ -23,7 +23,7 @@
     "jsdom": "26.1.0",
     "obsidian": "1.14.4",
     "postcss": "8.5.30",
-    "typescript": "5.8.3",
+    "typescript": "7.0.2",
     "vitest": "5.0.5"
   }
 }
