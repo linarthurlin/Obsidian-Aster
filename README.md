@@ -16,7 +16,9 @@ Each component has its own manifest, build, version, installer, CI and releases.
 
 Download `aster-plugin-VERSION.zip` from [Releases](https://github.com/linarthurlin/Obsidian-Aster/releases). Extract it into the `.obsidian/plugins/knowledge-agent`. Reload Obsidian and enable Aster manually. The plugin ID and folder remain knowledge-agent for upgrade compatibility. Installation does not activate the plugin or modify notes, data.json, or the enabled-plugin list.
 
-Open **Aster: Open knowledge review workbench** from the command palette. Choose a corpus folder in Settings, load scoped notes, select a target and query, then inspect the exact context before asking Codex. Review the resulting diff and evidence before explicitly applying an update. See [Codex setup, privacy boundaries and usage](docs/CODEX-CLI.zh-TW.md).
+Open **Aster: Open Aster Chat** for independent text-only sessions with per-chat model and thinking controls, streamed responses, cancellation, Codex-reported context usage and resumable Codex sessions. Aster keeps a local transcript outside the Vault; Codex also stores its own session. Clearing Aster chats removes its transcript and link, while the Codex session remains available in Codex. Live Chat currently supports the tested Codex CLI `0.162.x` minor. See [Chat scope and storage](docs/CHAT.zh-TW.md).
+
+Open **Aster: Open knowledge review workbench** for scoped retrieval and reviewed note proposals. Choose a corpus folder in Settings, load scoped notes, select a target and query, then inspect the exact context before asking Codex. Review the resulting diff and evidence before explicitly applying an update. See [Codex setup, privacy boundaries and usage](docs/CODEX-CLI.zh-TW.md).
 
 CLI: `npm run aster -- search --vault /explicit/corpus --query text`. The earlier `npm run knowledge` command remains available as an alias. Apply is a separate explicit operation requiring the reviewed digest and unchanged evidence. Plans and receipts contain private note text and must stay outside public source. See [offline workflow](workflow/README.md).
 

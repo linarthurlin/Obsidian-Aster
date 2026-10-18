@@ -2,7 +2,7 @@
 
 npm run check validates TypeScript, plugin build, offline CSS, manifests, review engine, installer isolation, scoped retrieval, model-output boundaries and subprocess errors/cancellation/timeouts/output limits. DOM tests run the bundled plugin with mocked Obsidian and process APIs; CI does not call a live model.
 
-The workbench test checks that loading filenames does not send note content, context must be previewed and explicitly approved, query changes reset approval, stale sources prevent sending, and closing the view cleans its DOM. Lifecycle checks verify no startup scan/model launch. Installer tests preserve existing plugin data and reject junctions.
+The workbench test checks that loading filenames does not send note content, context must be previewed and explicitly approved, query changes reset approval, stale sources prevent sending, and closing the view cleans its DOM. Chat tests cover custom Skill frontmatter and bounded local storage, slash expansion into visible editable text, retained user resources on deletion, the rule that Skill text grants no capabilities, and current-note content copied from a synthetic active editor into a visible draft without sending or editing it. Lifecycle checks verify no startup scan/model launch. Installer tests preserve existing plugin data and reject junctions.
 
 Codex CLI 0.162.1 passed three small synthetic live cases: a supported update with evidence, source-instruction injection, and insufficient evidence. The update was applied and rolled back only in the synthetic corpus. These smoke cases do not establish statistical retrieval quality or adversarial robustness.
 

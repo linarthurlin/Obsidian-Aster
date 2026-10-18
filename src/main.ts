@@ -1,9 +1,10 @@
-import { Plugin, ItemView, PluginSettingTab, Setting, type App, type WorkspaceLeaf } from 'obsidian';
+import { Plugin, ItemView, PluginSettingTab, Setting, MarkdownView, Notice, type App, type WorkspaceLeaf } from 'obsidian';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
 import { normalizeSettings, type Settings } from './settings';
+import { ChatView, ASTER_CHAT_VIEW } from './chat-view';
 import { listNotes, resolveScope, prepareContext, contextDigest, assertContextFresh, suggestionPlan, type Context, type Reviewed } from '../workflow/corpus.mjs';
 import { runCodex } from '../workflow/codex.mjs';
 import { apply, rollback } from '../workflow/knowledge.mjs';
@@ -128,7 +129,11 @@ export default class KnowledgeAgent extends Plugin {
   async onload() {
     this.settings = normalizeSettings(await this.loadData());
     this.registerView(VIEW, leaf => new Workbench(leaf, this));
+    this.registerView(ASTER_CHAT_VIEW, leaf => new ChatView(leaf, this));
     this.addCommand({ id: 'open-workbench', name: 'Open knowledge review workbench', callback: () => this.openWorkbench() });
+    this.addCommand({ id: 'open-chat', name: 'Open Aster Chat', callback: () => this.openChat() });
+    this.addCommand({ id: 'quick-ask-selection', name: 'Quick Ask: selected text', callback: () => this.quickAskSelection() });
+    this.addCommand({ id: 'attach-active-note', name: 'Attach active note to Aster draft', callback: () => this.attachActiveNote() });
     this.addSettingTab(new AgentSettings(this.app, this));
   }
   async corpus() {
@@ -142,7 +147,38 @@ export default class KnowledgeAgent extends Plugin {
     if (!leaf) { leaf = this.app.workspace.getLeaf('tab'); await leaf.setViewState({ type: VIEW, active: true }); }
     await this.app.workspace.revealLeaf(leaf);
   }
-  onunload() { this.app.workspace.detachLeavesOfType(VIEW); }
+  async quickAskSelection() {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    const selection = view?.editor.getSelection() ?? '';
+    if (!view || !selection.trim()) { new Notice('Select text in a Markdown note before using Quick Ask.'); return; }
+    if (selection.length > 12_000) { new Notice('Quick Ask supports selections up to 12,000 characters. Narrow the selection and try again.'); return; }
+    if (!view.file) { new Notice('Quick Ask could not identify the selected note.'); return; }
+    await this.openChat();
+    const leaf = this.app.workspace.getLeavesOfType(ASTER_CHAT_VIEW)[0];
+    const chat = leaf?.view;
+    if (!(chat instanceof ChatView)) { new Notice('Aster Chat is not available.'); return; }
+    await chat.startQuickAskDraft(selection, view.file.path);
+  }
+  async attachActiveNote() {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view?.file) { new Notice('Open a Markdown note before attaching the active note to Aster Chat.'); return; }
+    const content = view.editor.getValue();
+    if (!content.trim()) { new Notice('The active Markdown note is empty; nothing was added.'); return; }
+    if (content.length > 24_000) { new Notice('Aster can attach up to 24,000 characters from the active note. No content was added.'); return; }
+    const path = view.file.path;
+    await this.openChat();
+    const leaf = this.app.workspace.getLeavesOfType(ASTER_CHAT_VIEW)[0];
+    const chat = leaf?.view;
+    if (!(chat instanceof ChatView)) { new Notice('Aster Chat is not available.'); return; }
+    try { await chat.attachNoteToDraft(content, path); }
+    catch (error) { new Notice(error instanceof Error ? error.message : 'Could not attach the active note.'); }
+  }
+  async openChat() {
+    let leaf = this.app.workspace.getLeavesOfType(ASTER_CHAT_VIEW)[0];
+    if (!leaf) { leaf = this.app.workspace.getLeaf('tab'); await leaf.setViewState({ type: ASTER_CHAT_VIEW, active: true }); }
+    await this.app.workspace.revealLeaf(leaf);
+  }
+  onunload() { this.app.workspace.detachLeavesOfType(VIEW); this.app.workspace.detachLeavesOfType(ASTER_CHAT_VIEW); }
 }
 class AgentSettings extends PluginSettingTab {
   constructor(app: App, private plugin: KnowledgeAgent) { super(app, plugin); }
@@ -152,8 +188,10 @@ class AgentSettings extends PluginSettingTab {
       .addText(text => text.setPlaceholder('Research/Selected').setValue(this.plugin.settings.corpusFolder).onChange(async value => { this.plugin.settings.corpusFolder = value; await this.plugin.saveSettings(); }));
     new Setting(root).setName('Codex CLI executable').setDesc('Optional absolute path to your trusted codex executable. Empty uses installed Codex/PATH; .cmd/.bat/.ps1 wrappers are not supported.')
       .addText(text => text.setValue(this.plugin.settings.executable).onChange(async value => { this.plugin.settings.executable = value; await this.plugin.saveSettings(); }));
-    new Setting(root).setName('Model').setDesc('Optional model ID. Empty uses the CLI built-in default. Personal CLI config/plugins are deliberately not loaded; existing CLI authentication is reused.')
+    new Setting(root).setName('Default model').setDesc('Default for new chats. Each chat can override this after loading the Codex model catalog. Empty uses the CLI default.')
       .addText(text => text.setValue(this.plugin.settings.model).onChange(async value => { this.plugin.settings.model = value; await this.plugin.saveSettings(); }));
-    root.createEl('p', { text: 'No API keys are stored by this plugin. Each request sends only the context you preview and approve. Existing CLI account usage applies. Journals contain private before/after text and are stored outside the vault under your home directory.' });
+    new Setting(root).setName('Default thinking').setDesc('Default for new chats. Model-specific choices are loaded from Codex when available.')
+      .addDropdown(dropdown => dropdown.addOption('', 'Provider default').addOption('low', 'Low').addOption('medium', 'Medium').addOption('high', 'High').addOption('xhigh', 'Extra high').setValue(this.plugin.settings.thinking).onChange(async value => { this.plugin.settings.thinking = value; await this.plugin.saveSettings(); }));
+    root.createEl('p', { text: 'No API keys are stored by this plugin. Chat transcripts stay in the local user profile outside the Vault; plugin settings keep only chat metadata, and Chat requests never attach Vault notes. The Knowledge Studio separately sends only the context you preview and approve. Transaction journals stay outside the vault under your home directory.' });
   }
 }

@@ -10,7 +10,7 @@ it('requires explicit scope loading, context preview and consent; changing query
   const home=await mkdtemp(join(tmpdir(),'ka-ui-'));await mkdir(join(home,'Selected'));
   await writeFile(join(home,'Selected/Note.md'),'# Filtering\nHuman text.\n');
   await writeFile(join(home,'Selected/Source.md'),'Bayesian prior combines with observations.');
-  const dom=new JSDOM('<main></main>'), doc=dom.window.document;let spawned=0, factory:any;
+  const dom=new JSDOM('<main></main>'), doc=dom.window.document;let spawned=0;const factories=new Map<string,any>();
   const proto=dom.window.HTMLElement.prototype as any;
   proto.empty=function(){this.replaceChildren()};proto.addClass=function(cls:string){this.classList.add(cls)};
   proto.setText=function(text:string){this.textContent=text};
@@ -19,12 +19,12 @@ it('requires explicit scope loading, context preview and consent; changing query
     if(options.value!==undefined)(el as any).value=options.value;for(const [key,value]of Object.entries(options.attr||{}))el.setAttribute(key,String(value));this.appendChild(el);return el};
   proto.createDiv=function(options:any){return this.createEl('div',options)};proto.createSpan=function(options:any){return this.createEl('span',options)};
   const app={vault:{adapter:{getBasePath:()=>home}},workspace:{detachLeavesOfType:()=>{}}};
-  class Plugin {app=app;async loadData(){return {corpusFolder:'Selected',executable:process.execPath}}registerView(_id:string,f:any){factory=f}addCommand(){}addSettingTab(){}}
+  class Plugin {app=app;async loadData(){return {corpusFolder:'Selected',executable:process.execPath}}registerView(id:string,f:any){factories.set(id,f)}addCommand(){}addSettingTab(){}}
   class ItemView {app=app;contentEl=doc.createElement('div');constructor(){doc.querySelector('main')!.appendChild(this.contentEl)}registerDomEvent(el:any,event:string,fn:any){el.addEventListener(event,fn)}}
   const module={exports:{}};
   runInNewContext(await readFile('dist/plugin/main.js','utf8'),{module,exports:module.exports,process,Buffer,AbortController,setTimeout,clearTimeout,
     require:(name:string)=>name==='obsidian'?{Plugin,ItemView,PluginSettingTab:class{}}:name==='node:child_process'?{spawn:()=>{spawned++;throw new Error('NETWORK_NOT_ALLOWED')}}:require(name)});
-  const Agent=(module.exports as any).default,plugin=new Agent();await plugin.onload();const view=factory({});await view.onOpen();
+  const Agent=(module.exports as any).default,plugin=new Agent();await plugin.onload();const view=factories.get('knowledge-agent-workbench')({});await view.onOpen();
   const button=(text:string)=>Array.from(doc.querySelectorAll('button')).find(b=>b.textContent!.includes(text))!;
   const invoke=async(el:any)=>{await el.onclick?.(new dom.window.Event('click'))};
   expect(doc.querySelector('pre')).toBeNull();expect(spawned).toBe(0);

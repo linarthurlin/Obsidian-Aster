@@ -22,9 +22,23 @@ Aster 是 Obsidian 裡的 Codex 優先 Agent 工作台：提供多對話、model
 
 目前 0.2.1 已有明確資料夾範圍、本機有限制詞彙檢索、完整 context 預覽、Codex CLI 單次唯讀提案、來源摘錄／路徑核對、逐筆 diff 審核、單一既有 Markdown 的明確套用、外部 transaction journal 與保守 rollback，也有離線 search/propose/review/apply/rollback CLI。
 
-目前 Codex 路徑刻意使用 ephemeral/read-only 執行、停用 shell/web/plugins，並沿用 Codex 自己的登入；外掛不讀取或保存憑證。升級為長連線 Agent loop 前，必須完成 runtime 能力與安全邊界的對照測試，不能因競品能呼叫工具就放寬權限。
+目前一般 Chat 使用 Codex 持久 thread 以支援重新開啟與跨重啟恢復；每個 thread 使用 read-only sandbox，停用 shell/web/plugins，並沿用 Codex 自己的登入。Aster 與 Codex 各保存一份對話紀錄；清除 Aster chat 只會清除 Aster transcript 和 session link，Codex session 需在 Codex 端管理。外掛不讀取或保存憑證。知識操作的 provider/tool 權限仍須逐項做 runtime 對照測試，不因競品能力而放寬。
 
 ROADMAP 未完成項目仍有效：繁中／混合語言檢索品質、跨重啟交易歷史、crash journal 復原、folder chooser、搜尋導覽、多筆提案審核、真實 Obsidian 執行、取消流程、主題共存與無障礙。先補足再增加自動化。
+
+## 本次實作進度（2026-10-18）
+
+- 已新增獨立 Aster Chat view、session 清單、建立／清除、按標題搜尋／重新命名、多 session 歷史、Markdown 顯示、即時串流與取消。
+- 每個 session 可指定 model/thinking；model catalog 由本機 Codex app-server model/list 載入。查詢 catalog 不會送出 prompt；catalog 不代表帳戶權限保證。
+- 已加入可鍵盤操作的 slash prompt recipe 選單（摘要、解釋、發想、綱要、改寫、繁中翻譯）；選取後展開為可見且可編輯的普通 composer 文字，不授予 Agent 額外能力。
+- Chat 改用 Codex app-server `0.162.x` minor-gated persistent threads，將 `threadSource` 標記為 `aster`，保存 provider thread ID 並以 `thread/resume` 恢復。工具類別和 MCP 關閉、Codex 自動載入的 project documents 上限為零、thread cwd 位於系統暫存目錄、read-only sandbox、turn network 關閉；任何未知 tool item/server request 都 fail closed。Aster 只把使用者明確設定的 Project 指示快照傳入 thread base instructions，限制 6,000 字元並保留原有 text-only 邊界。Aster transcript 保存在 `.aster/chats/`；Codex 也會保存自己的 session。
+- Windows Codex CLI 0.162.1 合成 gate：ephemeral thread 多回合串流及 usage 成功；canary 工具邊界測試未讀出檔案且未觀察到工具 item；取消收到 ACK 並以 `interrupted` 結束，但沒有 final usage notification。持久 thread 跨 app-server process resume 成功，恢復相同 `threadSource=aster` session 並取回合成記憶句，兩回合都回報 usage；probe session 已封存。Context meter 使用 `last.totalTokens` 和每回合最新 `modelContextWindow`，依官方 TUI baseline 計算；取消／compaction／模型變更時標示舊值可能過期。同一 thread 的 window 會依 provider 回報更新，不假設固定窗口。
+- Fake app-server 測試已覆蓋多 chat 交錯、Aster transcript restore、持久 thread resume、未支援 CLI minor 啟動前拒絕、未知 command item 中止、取消、meter，以及 Project 指示在 start/resume 兩條路徑保持相同且不超過 6,000 字元；jsdom Chat view 測試覆蓋串流輸出、保存 transcript、60% provider meter、view 關閉重開後恢復同一 Codex thread、Clear 在暫停中的 atomic rename 完成後才刪除 transcript 的確定性競態、Quick Ask 草稿，以及 Project 建立／編輯後新舊 chat 指示快照隔離。沒有讀取或修改個人 Vault；真實 Obsidian UI 載入仍待驗證。
+- 已加入 Quick Ask: selected text 命令：只讀取當前 Markdown 編輯器的明確選取（上限 12,000 字元），建立獨立對話，將來源路徑與選取內容放入可見、可編輯草稿；使用者按 Send 前不送出，也不替換原文。
+- Projects 可在 Aster 設定中建立、編輯與刪除，並把新 chat 指派至全域或所選 Project。Project instructions 顯示在 chat 中並以 JSON context 傳給 Codex，限制 6,000 字元；每個 chat 固定建立時的名稱與指示快照，修改後只套用於新 chat。Project 不會附加 Vault 檔案或資料夾；Clear chats 保留 Project 設定。
+- 「Attach active note to Aster draft」命令只讀取目前 Markdown 編輯器 buffer（包含尚未存檔的編輯），限制 24,000 字元，將路徑與完整內容放入目前 Chat 的可見 composer；若沒有 Chat 則建立一個。草稿明確標示筆記是未受信任的來源內容，由使用者檢查後自行送出；不呼叫 Vault-wide API、不掃描、不隱藏附加、不改寫筆記。超過限制時拒絕且不截斷。真實 Obsidian buffer/runtime 尚待 disposable Vault 驗證。
+- Skills MVP 已實作：遵循 Agent Skills `SKILL.md` 的 name/description/frontmatter 慣例，存在使用者 profile 的 `.aster/skills`，最多 40 個；支援建立、編輯、刪除和 slash menu 呼叫。只讀取單一 `SKILL.md`，不解析其引用檔、不執行 scripts、不授予工具或 Vault 權限；呼叫時完整展開成可見、可編輯的 user message，並保留在本機 transcript。`allowed-tools` 不予採用，因為 Aster 權限由 Aster 自己的 Tool Router 管理。
+- 尚未實作工具活動、Scoped Obsidian tools、Knowledge Studio 整合、Research Desk 或 Vault Curator。
 
 ## ANKS 與 Building a Second Brain
 
@@ -84,9 +98,9 @@ ANKS 沒有公認且唯一的公開定義；此計畫沿用先前討論的工作
 
 Workbench 管對話、composer、meter、工具活動和 approvals；Thread Registry 隔離 sessions；Project/Skill/Mode Registry 管 prompt、context builder、schema、tools 和權限；Provider Adapter 對接 Codex CLI；Tool Router 將請求映射成固定 Obsidian API；Evidence Store 保存 source locators；Journal 管提案、交易和復原。索引是可重建快取，不是第二個知識主庫。
 
-Codex App Server 官方協定提供 model/list、thread start/resume、事件串流、approvals、token usage。Model list 不保證帳戶實際有權使用。Grimoire 已採 Codex App Server，因此 Phase 0 比較 Codex exec 與 app-server 在 Windows 支援、session 歷史、穩定度、cancel、meter 和工具權限後再選路徑；協定整合本身不是產品差異。[App Server](https://developers.openai.com/codex/app-server) [Model list](https://developers.openai.com/codex/app-server#list-models)
+Codex App Server 官方協定提供 model/list、thread start/resume、事件串流、approvals、token usage。Model list 不保證帳戶實際有權使用。Grimoire 已採 Codex App Server；Aster 使用標記為 `aster` 的持久 thread，以保留 app-server 端的對話狀態並在重啟後恢復。使用者可在 Aster 清除本機 transcript 和連結，但 Codex session 需在 Codex 端管理。此生命週期已用 Windows `0.162.1` 完成跨 process synthetic gate；未測 minor 在載入 model catalog／Chat 前拒絕。[App Server](https://developers.openai.com/codex/app-server) [Model list](https://developers.openai.com/codex/app-server#list-models)
 
-Per-session meter 使用 Codex usage update 的 active/last token count 與 modelContextWindow；compaction 後降低是正常、換模型清除舊窗口、resume 後再同步，缺資料顯示 unknown。[Usage schema](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/v2/ThreadTokenUsageUpdatedNotification.json) [Codex TUI calculation](https://github.com/openai/codex/blob/main/codex-rs/tui/src/token_usage.rs)
+Per-session meter 使用 Codex usage update 的 `last.totalTokens`（active context）與 `modelContextWindow`，採 Codex TUI 的 12,000-token baseline。window 依 provider 每回合更新；缺資料顯示 unknown，取消未收到通知時保留最後值並標 stale。真實 compaction 和 Windows Obsidian UI 仍需 runtime 驗證。[Usage schema](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/v2/ThreadTokenUsageUpdatedNotification.json) [Codex TUI calculation](https://github.com/openai/codex/blob/main/codex-rs/tui/src/token_usage.rs)
 
 讀寫透過 Obsidian Vault API 的明確介面；套用前重比對來源和目標，遇到人工修改就停止。[Vault API](https://docs.obsidian.md/Plugins/Vault)
 
@@ -156,6 +170,12 @@ Theme 與 Companion repo 不隨本次更名；Aster 繼續遵循 integration con
 ## 參考資料
 
 - [Community Plugin — Copilot](https://community.obsidian.md/plugins/copilot)
+- [Copilot Project workspaces](https://github.com/logancyang/obsidian-copilot/blob/master/docs/projects.md)
+- [Copilot Skills and tool behavior](https://github.com/logancyang/obsidian-copilot/blob/master/docs/agent-mode-and-tools.md)
+- [Agent Skills format specification](https://github.com/agentskills/agentskills/blob/main/docs/specification.mdx)
+- [Codex Skills documentation](https://developers.openai.com/codex/skills/)
+- [Copilot Chat context attachments](https://github.com/logancyang/obsidian-copilot/blob/master/docs/chat-interface.md)
+- [Obsidian Vault read API](https://docs.obsidian.md/Plugins/Vault)
 - [Community Plugin — Grimoire](https://community.obsidian.md/plugins/grimoire)
 - [Community Plugin — Tasks](https://community.obsidian.md/plugins/obsidian-tasks-plugin)
 - [Community Plugin — Zotero Integration](https://community.obsidian.md/plugins/obsidian-zotero-desktop-connector)
