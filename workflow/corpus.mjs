@@ -1,5 +1,5 @@
 import { readdir, lstat, readFile, realpath } from 'node:fs/promises';
-import { resolve, relative, isAbsolute, join } from 'node:path';
+import { resolve, relative, isAbsolute, join, basename } from 'node:path';
 import { safePath, hash, propose, review } from './knowledge.mjs';
 export const LIMITS = { files: 2000, bytes: 200000, searchBytes: 20000000, searchExcerptChars: 420, searchResults: 20, targetChars: 32000, batchTargets: 4, batchTargetChars: 48000, excerptChars: 2400, sources: 6 };
 export function visiblePath(path) {
@@ -77,6 +77,28 @@ export function getCorpusLinkHealth(folder, notePaths, resolvedLinks, unresolved
   }
   const noInbound = notePaths.filter(path => !inboundCounts.has(prefix + path)).sort((a, b) => a.localeCompare(b));
   return { unresolved, noInbound };
+}
+export function getCorpusTitleCollisions(folder, notePaths) {
+  if (!visiblePath(folder)) throw new Error('Choose a visible Corpus folder to inspect note titles.');
+  if (!Array.isArray(notePaths) || notePaths.length > LIMITS.files
+    || notePaths.some(path => !visiblePath(path) || !path.endsWith('.md')))
+    throw new Error('Corpus note listing is invalid or exceeds the file limit.');
+  const groups = new Map();
+  for (const path of notePaths) {
+    const title = basename(path, '.md');
+    const key = title.normalize('NFKC').toLowerCase();
+    const group = groups.get(key) || { paths: [] };
+    group.paths.push(path);
+    groups.set(key, group);
+  }
+  const comparePaths = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+  return [...groups.values()]
+    .filter(group => group.paths.length > 1)
+    .map(group => {
+      const paths = group.paths.sort(comparePaths);
+      return { title: basename(paths[0], '.md').normalize('NFKC'), paths };
+    })
+    .sort((a, b) => comparePaths(a.title, b.title));
 }
 async function boundedRead(root, path) {
   const absolute = await safePath(root, path), info = await lstat(absolute);

@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { getCorpusLinkHealth } from '../workflow/corpus.mjs';
+import { getCorpusLinkHealth, getCorpusTitleCollisions } from '../workflow/corpus.mjs';
 
 it('reports only unresolved and no-inbound links whose source and target are inside the selected Corpus', () => {
   const report = getCorpusLinkHealth('ResearchScope', ['Target.md', 'Linker.md', 'Independent.md', 'Self.md'], {
@@ -26,4 +26,20 @@ it('looks up only selected Corpus source keys without enumerating the app-wide l
     ownKeys() { throw new Error('outside Corpus metadata must not be enumerated'); },
   });
   expect(getCorpusLinkHealth('ResearchScope', ['Selected.md'], links, links)).toEqual({ unresolved: [], noInbound: ['Selected.md'] });
+});
+
+it('reports repeated Markdown titles using only the selected Corpus paths', () => {
+  expect(getCorpusTitleCollisions('ResearchScope', [
+    'Research/Meeting.md', 'Archive/Meeting.md', 'Archive/meeting.md',
+    'Research/Ｃａｆｅ́.md', 'Archive/Café.md', 'Research/Unique.md',
+  ])).toEqual([
+    { title: 'Café', paths: ['Archive/Café.md', 'Research/Ｃａｆｅ́.md'] },
+    { title: 'Meeting', paths: ['Archive/Meeting.md', 'Archive/meeting.md', 'Research/Meeting.md'] },
+  ]);
+});
+
+it('rejects title collision requests outside the visible Corpus contract', () => {
+  expect(() => getCorpusTitleCollisions('../Outside', ['Note.md'])).toThrow('visible Corpus folder');
+  expect(() => getCorpusTitleCollisions('ResearchScope', ['../Outside.md'])).toThrow('note listing is invalid');
+  expect(() => getCorpusTitleCollisions('ResearchScope', ['.hidden/Note.md'])).toThrow('note listing is invalid');
 });

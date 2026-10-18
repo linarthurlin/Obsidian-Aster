@@ -11,6 +11,9 @@ it('requires explicit scope loading, context preview and consent; changing query
   const home=await mkdtemp(join(tmpdir(),'ka-ui-'));await mkdir(join(home,'Selected'));
   await writeFile(join(home,'Selected/Note.md'),'# Filtering\nHuman text.\n');
   await writeFile(join(home,'Selected/Source.md'),'Bayesian prior combines with observations.');
+  await mkdir(join(home,'Selected/Research'),{recursive:true});await mkdir(join(home,'Selected/Archive'),{recursive:true});
+  await writeFile(join(home,'Selected/Research/Meeting.md'),'Synthetic duplicate title fixture.');
+  await writeFile(join(home,'Selected/Archive/Meeting.md'),'Synthetic duplicate title fixture.');
   const dom=new JSDOM('<main></main>'), doc=dom.window.document;let spawned=0;const factories=new Map<string,any>();
   const proto=dom.window.HTMLElement.prototype as any;
   proto.empty=function(){this.replaceChildren()};proto.addClass=function(cls:string){this.classList.add(cls)};
@@ -38,6 +41,9 @@ it('requires explicit scope loading, context preview and consent; changing query
   expect(doc.body.textContent).toContain('Missing synthetic target');
   expect(doc.body.textContent).toContain('metadata only');
   expect(doc.body.textContent).toContain('does not read note bodies');
+  expect(doc.body.textContent).toContain('Repeated note titles');
+  expect(doc.body.textContent).toContain('Research/Meeting.md');
+  expect(doc.body.textContent).toContain('Archive/Meeting.md');
   expect(spawned).toBe(0);
   expect(doc.querySelector('pre')).toBeNull();expect(spawned).toBe(0);
   await invoke(button('Ask Codex'));expect(spawned).toBe(0);

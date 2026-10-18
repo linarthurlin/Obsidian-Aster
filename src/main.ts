@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { normalizeSettings, type Settings } from './settings';
 import { ChatView, ASTER_CHAT_VIEW } from './chat-view';
-import { listNotes, visiblePath, resolveScope, prepareContext, prepareBatchContext, contextDigest, assertContextFresh, suggestionPlan, batchSuggestionPlan, getCorpusLinkHealth, type Context, type Reviewed } from '../workflow/corpus.mjs';
+import { listNotes, visiblePath, resolveScope, prepareContext, prepareBatchContext, contextDigest, assertContextFresh, suggestionPlan, batchSuggestionPlan, getCorpusLinkHealth, getCorpusTitleCollisions, type Context, type Reviewed } from '../workflow/corpus.mjs';
 import { runCodex, runBatchCodex } from '../workflow/codex.mjs';
 import { apply, listTransactionJournals, readTransactionReview, recoverTransactionJournal, rollbackTransactionJournal, review as reviewPlan } from '../workflow/knowledge.mjs';
 import { renderProposalReviewCard, type ProposalReviewCard } from './proposal-review';
@@ -164,11 +164,33 @@ class Workbench extends ItemView {
         const selectedCorpus = await this.plugin.corpus();
         const notePaths = await listNotes(selectedCorpus);
         const health = getCorpusLinkHealth(selectedFolder, notePaths, this.app.metadataCache.resolvedLinks, this.app.metadataCache.unresolvedLinks);
+        const titleCollisions = getCorpusTitleCollisions(selectedFolder, notePaths);
         if (await this.plugin.corpus() !== selectedCorpus || this.plugin.settings.corpusFolder !== selectedFolder) throw new Error('Corpus changed while the link report was being prepared. Run it again.');
         if (this.closed) return;
         curatorArea.createEl('h3', { text: 'Corpus link health · metadata only' });
         curatorArea.createEl('p', { text: 'This on-demand report reads the configured Corpus path list and Obsidian’s link index only. It does not read note bodies, call Codex, or change files.' });
-        curatorArea.createEl('p', { text: `${health.unresolved.length} unresolved link target(s); ${health.noInbound.length} note(s) without an inbound link from this Corpus.` });
+        curatorArea.createEl('p', { text: `${health.unresolved.length} unresolved link target(s); ${health.noInbound.length} note(s) without an inbound link from this Corpus; ${titleCollisions.length} repeated-title group(s).` });
+        if (titleCollisions.length) {
+          const details = curatorArea.createEl('details');
+          details.createEl('summary', { text: `Repeated note titles · ${titleCollisions.length} disambiguation candidates` });
+          details.createEl('p', { text: 'This filename-only check groups matching Markdown titles in this Corpus, ignoring case and Unicode compatibility differences. Matching titles may be intentional; review each path before changing links.' });
+          for (const finding of titleCollisions.slice(0, 100)) {
+            const entry = details.createDiv({ cls: 'pga-curator-finding' });
+            entry.createEl('strong', { text: finding.title });
+            for (const path of finding.paths) {
+              const row = entry.createDiv({ cls: 'pga-curator-finding' });
+              row.createEl('span', { text: path });
+              const open = row.createEl('button', { text: 'Open note' });
+              open.onclick = async () => {
+                open.disabled = true;
+                try { await openCorpusNote(path, selectedFolder, selectedCorpus); }
+                catch (error) { if (!this.closed) row.createEl('p', { text: error instanceof Error ? error.message : 'Could not open the note.' }); }
+                finally { if (!this.closed) open.disabled = false; }
+              };
+            }
+          }
+          if (titleCollisions.length > 100) details.createEl('p', { text: `Showing 100 of ${titleCollisions.length} title groups.` });
+        } else curatorArea.createEl('p', { text: 'No repeated note titles were found inside this Corpus.' });
         if (health.unresolved.length) {
           curatorArea.createEl('h4', { text: 'Unresolved link targets · review candidates' });
           curatorArea.createEl('p', { text: 'An unresolved link may point to a renamed note or alias, or contain a typo. This report does not classify it as a confirmed broken link.' });
