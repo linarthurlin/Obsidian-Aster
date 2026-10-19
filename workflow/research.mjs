@@ -5,7 +5,7 @@ import { hash, safePath } from './knowledge.mjs';
 import { visiblePath } from './corpus.mjs';
 import { RESEARCH_PDF_LIMITS } from './research-pdf.mjs';
 
-export const RESEARCH_LIMITS = Object.freeze({ sources: 6, sourceBytes: 200_000, sourceFiles: 4_000, sourceEntries: 10_000, pdfBytes: RESEARCH_PDF_LIMITS.bytesPerFile, pdfPagesPerSource: RESEARCH_PDF_LIMITS.pagesPerFile, pdfPagesTotal: RESEARCH_PDF_LIMITS.pagesTotal, totalEvidenceChars: 24_000, evidencePerSource: 40, evidenceTotal: 120, evidenceChars: 4_000, questionChars: 1_000, draftChars: 38_000 });
+export const RESEARCH_LIMITS = Object.freeze({ sources: 6, sourceBytes: 200_000, sourceFiles: 4_000, sourceEntries: 10_000, pdfBytes: RESEARCH_PDF_LIMITS.bytesPerFile, pdfPagesPerSource: RESEARCH_PDF_LIMITS.pagesPerFile, pdfPagesTotal: RESEARCH_PDF_LIMITS.pagesTotal, totalEvidenceChars: 24_000, evidencePerSource: 120, evidenceTotal: 120, evidenceChars: 4_000, questionChars: 1_000, draftChars: 38_000 });
 const RESEARCH_ID = /^S\d+-E\d+$/;
 
 export async function listResearchFiles(root) {
@@ -179,7 +179,7 @@ export function buildResearchSourceSet(question, inputs) {
       })
       : extractEvidence(input.content);
     if (!blocks.length) throw new Error('A selected source has no readable prose or annotation evidence: ' + input.path);
-    if (blocks.length > RESEARCH_LIMITS.evidencePerSource) throw new Error('A selected note has more than 40 evidence blocks; narrow the source set.');
+    if (blocks.length > RESEARCH_LIMITS.evidencePerSource) throw new Error('A selected source has more than 120 evidence blocks; narrow the source set.');
     const extension = input.path.slice(input.path.lastIndexOf('.'));
     const metadataTitle = fieldText(input.title, 200);
     const title = metadataTitle || basename(input.path, extension);

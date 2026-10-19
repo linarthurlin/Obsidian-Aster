@@ -32,6 +32,27 @@ it('rejects extraction when the whole source set has exhausted its page budget',
   expect(opened).toBe(false);
 });
 
+it('extracts exactly 120 pages per PDF and allows a second PDF only within the remaining 240-page source-set budget', async () => {
+  const pages = Array.from({ length: 121 }, (_unused, index) => async () => ({ items: [{ str: 'Synthetic page ' + (index + 1) + '.' }] }));
+  const firstPdf = fakePdf(pages);
+  await expect(extractPdfPages(firstPdf.api, new Uint8Array([1]))).rejects.toThrow('explicit page range of at most 120 pages');
+  expect(firstPdf.requested).toEqual([]);
+
+  const first = await extractPdfPages(firstPdf.api, new Uint8Array([1]), '1-120', undefined, RESEARCH_PDF_LIMITS.pagesPerFile);
+  expect(first.selectedPageCount).toBe(120);
+  expect(firstPdf.requested).toHaveLength(120);
+
+  const remainingPages = RESEARCH_PDF_LIMITS.pagesTotal - first.selectedPageCount;
+  const secondPdf = fakePdf(pages);
+  const second = await extractPdfPages(secondPdf.api, new Uint8Array([2]), '1-120', undefined, remainingPages);
+  expect(first.selectedPageCount + second.selectedPageCount).toBe(240);
+  expect(secondPdf.requested).toHaveLength(120);
+
+  const exhaustedPdf = fakePdf(pages);
+  await expect(extractPdfPages(exhaustedPdf.api, new Uint8Array([3]), '1', undefined, 0)).rejects.toThrow('No PDF page budget remains');
+  expect(exhaustedPdf.requested).toEqual([]);
+});
+
 it('extracts only selected pages with PDF page labels and closes the host worker', async () => {
   const pdf = fakePdf([
     async () => ({ items: [{ str: 'First page must not enter evidence.' }] }),

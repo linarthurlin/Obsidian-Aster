@@ -81,6 +81,16 @@ it('builds PDF page citations from selected extracted text and rechecks the bina
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+it('accepts the full 120-page PDF source budget when its evidence fits the source-set limits', () => {
+  const pages = Array.from({ length: 120 }, (_unused, index) => ({ pageNumber: index + 1, text: 'Synthetic evidence from page ' + (index + 1) + '.' }));
+  const set = buildResearchSourceSet('What evidence appears across these selected pages?', [{
+    path: 'Paper.pdf', format: 'pdf', sourceHash: hash('synthetic 120-page PDF bytes'), pages,
+  }]);
+  expect(set.sources[0].evidence).toHaveLength(120);
+  expect(set.sources[0].evidence[0].locator.pdf.pageNumber).toBe(1);
+  expect(set.sources[0].evidence[119].locator.pdf.pageNumber).toBe(120);
+});
+
 it('does not turn a filename fallback into invented bibliography metadata', () => {
   const set = buildResearchSourceSet('Question', [{ path: 'Papers/Unknown record.pdf', format: 'pdf', content: 'Synthetic source text.',
     sourceHash: hash('synthetic PDF bytes'), pages: [{ pageNumber: 1, text: 'Synthetic source text.' }] }]);
