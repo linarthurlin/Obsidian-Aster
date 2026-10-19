@@ -56,6 +56,10 @@
 .pga-workbench .pga-curator h4,
 .pga-workbench .pga-curator p { margin: 0; }
 .pga-workbench .pga-curator-finding { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--background-modifier-border); border-radius: var(--pga-chat-radius); }
+.pga-workbench .pga-research { margin-block:18px; padding:14px; border:1px solid var(--background-modifier-border); border-radius:var(--pga-radius); background:var(--background-secondary); }
+.pga-workbench .pga-research > summary { cursor:pointer; font-weight:600; }
+.pga-workbench .pga-research > input, .pga-workbench .pga-research > select { display:block; width:100%; max-width:760px; margin-block:12px; }
+.pga-workbench .pga-research-preview pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:520px; overflow:auto; }
 .pga-chat .pga-chat-context-actions, .pga-chat .pga-chat-composer-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .pga-chat .pga-chat-skill-section { padding: 8px 10px; border: 1px solid var(--background-modifier-border); border-radius: var(--pga-chat-radius); background: var(--pga-chat-subtle); }
 .pga-chat .pga-chat-skill-section > summary { cursor: pointer; font-weight: 600; }
@@ -106,6 +110,8 @@
 .pga-chat .pga-chat-message-body > :first-child { margin-top: 0; }
 .pga-chat .pga-chat-message-body > :last-child { margin-bottom: 0; }
 .pga-chat .pga-chat-message-body pre { max-width: 100%; overflow: auto; }
+.pga-chat .pga-chat-citation-audit { margin-top: 8px; color: var(--pga-chat-muted); font-size: var(--font-smaller); }
+.pga-chat .pga-chat-citation-audit.is-warning { color: var(--text-warning, var(--text-error)); }
 .pga-chat .pga-chat-composer { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-items: end; }
 .pga-chat .pga-chat-composer textarea { width: 100%; min-height: 72px; resize: vertical; }
 .pga-chat .pga-chat-slash-menu:not([hidden]) {

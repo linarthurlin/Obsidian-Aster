@@ -2,14 +2,15 @@ import { FuzzySuggestModal, Plugin, ItemView, PluginSettingTab, Setting, Markdow
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
+import { lstat, mkdir } from 'node:fs/promises';
 import { normalizeSettings, type Settings } from './settings';
 import { registerCorpusSearchInvalidation } from './corpus-search-lifecycle';
 import { ChatView, ASTER_CHAT_VIEW } from './chat-view';
 import { listNotes, visiblePath, resolveScope, prepareContext, prepareBatchContext, contextDigest, assertContextFresh, suggestionPlan, batchSuggestionPlan, getCorpusLinkHealth, getCorpusTitleCollisions, getCorpusZeroByteNotes, getCorpusAliasCollisions, invalidateCorpusSearchIndex, type Context, type Reviewed } from '../workflow/corpus.mjs';
 import { runCodex, runBatchCodex } from '../workflow/codex.mjs';
-import { apply, listTransactionJournals, readTransactionReview, recoverTransactionJournal, rollbackTransactionJournal, review as reviewPlan } from '../workflow/knowledge.mjs';
+import { apply, listTransactionJournals, readTransactionReview, recoverTransactionJournal, rollbackTransactionJournal, review as reviewPlan, safePath } from '../workflow/knowledge.mjs';
 import { renderProposalReviewCard, type ProposalReviewCard } from './proposal-review';
+import { RESEARCH_LIMITS, assertResearchSourcesFresh, buildResearchDraft, buildResearchSourceSet, researchEvidenceIds } from '../workflow/research.mjs';
 const VIEW = 'knowledge-agent-workbench';
 class CorpusFolderPicker extends FuzzySuggestModal<TFolder> {
   constructor(app: App, private folders: TFolder[], private onChooseFolder: (folder: TFolder) => void) {
@@ -57,17 +58,41 @@ class Workbench extends ItemView {
     const curatorActions = root.createDiv({ cls: 'pga-actions' });
     const curatorButton = curatorActions.createEl('button', { text: 'Run Corpus metadata review / 檢查 Corpus 中繼資料' });
     const curatorArea = root.createDiv({ cls: 'pga-results pga-curator' });
+    const researchPanel = root.createEl('details', { cls: 'pga-research' });
+    researchPanel.createEl('summary', { text: 'Research Desk / 研究工作台' });
+    researchPanel.createEl('p', { text: 'Select one to six Markdown notes, including Zotero-imported annotation notes. Aster extracts bounded prose, heading/line locators, Zotero page links and source hashes. Direct PDF extraction is not enabled. Nothing is sent until you review and press Send in Chat.' });
+    const researchQuestion = researchPanel.createEl('input', { type: 'text', placeholder: 'What question should the selected sources answer?', attr: { 'aria-label': 'Research question', maxlength: '1000' } });
+    const researchSources = researchPanel.createEl('select', { attr: { 'aria-label': 'Research Desk source notes', multiple: 'multiple', size: '6' } });
+    researchSources.createEl('option', { value: '', text: 'Load scoped notes, then select up to six sources' });
+    const researchActions = researchPanel.createDiv({ cls: 'pga-actions' });
+    const previewResearch = researchActions.createEl('button', { text: 'Preview selected evidence / 預覽研究來源' }); previewResearch.disabled = true;
+    const prepareResearchChat = researchActions.createEl('button', { text: 'Prepare Chat draft / 建立聊天草稿' }); prepareResearchChat.disabled = true;
+    const researchStatus = researchPanel.createDiv({ cls: 'pga-status', attr: { role: 'status', 'aria-live': 'polite' }, text: 'Select source notes and review their exact evidence before preparing a draft.' });
+    const researchPreview = researchPanel.createDiv({ cls: 'pga-research-preview', attr: { 'aria-label': 'Research source preview' } });
     type WorkbenchContext = Context | Awaited<ReturnType<typeof prepareBatchContext>>;
     let corpus = '', context: WorkbenchContext | undefined, reviewed: Reviewed | null = null;
+    let researchSet: ReturnType<typeof buildResearchSourceSet> | undefined;
+    let researchDraft = '', researchCorpus = '', researchFolder = '', researchGeneration = 0;
     let historyLoading = false, curatorLoading = false;
     const invalidate = () => { ++this.generation; context = undefined; reviewed = null; consent.checked = false; send.disabled = true; contextArea.empty(); resultArea.empty(); };
+    const invalidateResearch = () => {
+      ++researchGeneration; researchSet = undefined; researchDraft = ''; researchCorpus = ''; researchFolder = '';
+      researchPreview.empty(); prepareResearchChat.disabled = true;
+      previewResearch.disabled = !researchQuestion.value.trim() || !researchSources.selectedOptions.length;
+    };
     const report = (error: unknown) => {
       if (this.closed) return;
       const detail = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
         ? error.message : typeof error === 'string' ? error : 'Operation failed.';
       status.setText(detail);
     };
-    const locked = (busy: boolean) => { load.disabled = busy; prepare.disabled = busy || !targets.value; query.disabled = busy; targets.disabled = busy; consent.disabled = busy; send.disabled = busy || !context || !consent.checked; cancel.disabled = !busy; historyButton.disabled = busy || historyLoading; curatorButton.disabled = busy || curatorLoading; };
+    const locked = (busy: boolean) => {
+      load.disabled = busy; prepare.disabled = busy || !targets.value; query.disabled = busy; targets.disabled = busy; consent.disabled = busy;
+      send.disabled = busy || !context || !consent.checked; cancel.disabled = !busy; historyButton.disabled = busy || historyLoading; curatorButton.disabled = busy || curatorLoading;
+      researchQuestion.disabled = busy; researchSources.disabled = busy;
+      previewResearch.disabled = busy || !researchQuestion.value.trim() || !researchSources.selectedOptions.length;
+      prepareResearchChat.disabled = busy || !researchSet;
+    };
     const openCorpusNote = async (relativePath: string, selectedFolder: string, selectedCorpus: string) => {
       const rootPath = await this.plugin.corpus();
       if (rootPath !== selectedCorpus || this.plugin.settings.corpusFolder !== selectedFolder) throw new Error('Corpus changed. Run the link check again before opening a result.');
@@ -284,18 +309,91 @@ class Workbench extends ItemView {
     };
     this.registerDomEvent(query, 'input', invalidate);
     this.registerDomEvent(targets, 'change', () => { invalidate(); prepare.disabled = !targets.selectedOptions.length; });
+    this.registerDomEvent(researchQuestion, 'input', invalidateResearch);
+    this.registerDomEvent(researchSources, 'change', invalidateResearch);
     this.registerDomEvent(consent, 'change', () => { send.disabled = !context || !consent.checked || !!this.abort; });
     cancel.onclick = () => this.abort?.abort();
     load.onclick = async () => {
-      invalidate(); locked(true);
+      invalidate(); invalidateResearch(); locked(true);
       try {
         corpus = await this.plugin.corpus(); const notes = await listNotes(corpus);
         if (this.closed) return;
         targets.empty(); targets.createEl('option', { value: '', text: 'Select an existing target note' });
         for (const path of notes) targets.createEl('option', { value: path, text: path });
+        researchSources.empty(); researchSources.createEl('option', { value: '', text: 'Ctrl-click to select one to six source notes' });
+        for (const path of notes) researchSources.createEl('option', { value: path, text: path });
         scope.setText('Corpus: ' + this.plugin.settings.corpusFolder);
         status.setText(notes.length + ' scoped Markdown files. Metadata only; no bodies sent.');
       } catch (error) { targets.value = ''; report(error); } finally { if (!this.closed) locked(false); }
+    };
+    previewResearch.onclick = async () => {
+      invalidateResearch();
+      const generation = researchGeneration;
+      const paths = Array.from(researchSources.selectedOptions).map(option => option.value).filter(Boolean);
+      const selectedFolder = this.plugin.settings.corpusFolder;
+      locked(true);
+      try {
+        if (!researchQuestion.value.trim()) throw new Error('Enter a research question before previewing sources.');
+        if (!paths.length || paths.length > RESEARCH_LIMITS.sources) throw new Error('Select between one and six Research Desk source notes.');
+        const selectedCorpus = await this.plugin.corpus();
+        const available = new Set(await listNotes(selectedCorpus));
+        const inputs = [];
+        for (const path of paths) {
+          if (!visiblePath(path) || !path.endsWith('.md') || !available.has(path)) throw new Error('A selected source left the configured Corpus. Reload and select it again.');
+          const absolute = await safePath(selectedCorpus, path);
+          const stat = await lstat(absolute);
+          if (stat.isSymbolicLink() || !stat.isFile() || stat.size > RESEARCH_LIMITS.sourceBytes) throw new Error('Each selected Research source must be a regular Markdown file up to 200,000 bytes.');
+          const vaultPath = selectedFolder + '/' + path;
+          const file = this.app.vault.getAbstractFileByPath(vaultPath);
+          if (!(file instanceof TFile) || file.path !== vaultPath) throw new Error('Obsidian could not resolve this source inside the selected Corpus: ' + path);
+          const content = await this.app.vault.read(file);
+          if (Buffer.byteLength(content, 'utf8') > RESEARCH_LIMITS.sourceBytes) throw new Error('A selected source exceeds the 200,000-byte Research limit: ' + path);
+          const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+          const metadataText = (value: unknown) => {
+            if (typeof value === 'string' || typeof value === 'number') return String(value);
+            if (Array.isArray(value)) return value.filter(item => typeof item === 'string' || typeof item === 'number').map(String).join(', ');
+            return '';
+          };
+          inputs.push({ path, content,
+            title: metadataText(frontmatter?.title),
+            citationKey: metadataText(frontmatter?.citekey ?? frontmatter?.citationKey ?? frontmatter?.['citation-key']),
+            author: metadataText(frontmatter?.author ?? frontmatter?.authors),
+            year: metadataText(frontmatter?.year),
+          });
+        }
+        if (this.closed || generation !== researchGeneration) return;
+        if (this.plugin.settings.corpusFolder !== selectedFolder || await this.plugin.corpus() !== selectedCorpus) throw new Error('Corpus changed while reading sources. Reload and preview again.');
+        researchSet = buildResearchSourceSet(researchQuestion.value, inputs);
+        researchDraft = buildResearchDraft(researchSet);
+        researchCorpus = selectedCorpus;
+        researchFolder = selectedFolder;
+        researchPreview.empty();
+        researchPreview.createEl('h4', { text: 'Exact editable Chat draft / 完整聊天草稿' });
+        researchPreview.createEl('p', { text: `${researchSet.sources.length} source note(s) · ${researchEvidenceIds(researchSet).length} evidence block(s) · ${researchSet.totalEvidenceChars.toLocaleString()} evidence characters. Note content is untrusted source material; Chat does not start automatically.` });
+        researchPreview.createEl('pre', { text: researchDraft, cls: 'pga-code' });
+        researchStatus.setText('Source hashes and locators are ready. Review the exact draft above; select Prepare Chat draft to copy it to an editable, unsent Chat.');
+      } catch (error) {
+        researchSet = undefined; researchDraft = ''; researchPreview.empty();
+        researchStatus.setText(error instanceof Error ? error.message : 'Could not prepare the selected Research sources.');
+      } finally { if (!this.closed) locked(false); }
+    };
+    prepareResearchChat.onclick = async () => {
+      if (!researchSet || !researchDraft) return;
+      const selectedSet = researchSet, selectedDraft = researchDraft, selectedRoot = researchCorpus, selectedFolder = researchFolder;
+      const generation = researchGeneration;
+      locked(true);
+      try {
+        if (this.plugin.settings.corpusFolder !== selectedFolder || await this.plugin.corpus() !== selectedRoot) throw new Error('Corpus changed. Preview the selected sources again.');
+        await assertResearchSourcesFresh(selectedRoot, selectedSet);
+        if (this.closed || generation !== researchGeneration) return;
+        await this.plugin.openChat();
+        const leaf = this.app.workspace.getLeavesOfType(ASTER_CHAT_VIEW)[0];
+        if (!(leaf?.view instanceof ChatView)) throw new Error('Aster Chat is not available.');
+        await leaf.view.startResearchDraft(selectedDraft, selectedSet.question, researchEvidenceIds(selectedSet));
+        researchStatus.setText('An independent Chat contains the editable, unsent Research draft. Review it and press Send only when ready.');
+      } catch (error) {
+        researchStatus.setText(error instanceof Error ? error.message : 'Could not prepare the Research Chat draft.');
+      } finally { if (!this.closed) locked(false); }
     };
     prepare.onclick = async () => {
       invalidate(); const generation = this.generation; const targetPaths = Array.from(targets.selectedOptions).map(option => option.value).filter(Boolean); locked(true);

@@ -27,6 +27,7 @@ export interface ChatThread {
   thinking: string;
   corpusToolsEnabled?: boolean;
   corpusToolsProvisioned?: boolean;
+  researchEvidenceIds?: string[];
 }
 export interface Settings {
   corpusFolder: string;
@@ -72,6 +73,9 @@ function normalizeChats(raw: unknown): ChatThread[] {
     const projectId = safeId(value.projectId);
     const projectName = safeText(value.projectName, 80).trim();
     const projectInstructions = safeText(value.projectInstructions, 6000);
+    const researchEvidenceIds = Array.isArray(value.researchEvidenceIds)
+      ? [...new Set(value.researchEvidenceIds.filter((id): id is string => typeof id === 'string' && /^S\d+-E\d+$/.test(id)))].slice(0, 120)
+      : [];
     chats.push({
       id,
       ...(providerThreadId && /^[a-zA-Z0-9_-]{1,200}$/.test(providerThreadId) ? { providerThreadId } : {}),
@@ -85,6 +89,7 @@ function normalizeChats(raw: unknown): ChatThread[] {
       thinking: EFFORTS.has(thinking) ? thinking : '',
       corpusToolsEnabled: value.corpusToolsEnabled === true,
       corpusToolsProvisioned: value.corpusToolsProvisioned === true,
+      ...(researchEvidenceIds.length ? { researchEvidenceIds } : {}),
     });
   }
   return chats;
