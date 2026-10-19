@@ -134,5 +134,10 @@ it('requires explicit scope loading, context preview and consent; changing query
   await invoke(rollbackButton);
   expect(await readFile(join(corpus,'History.md'),'utf8')).toBe(original);
   expect(JSON.parse(await readFile(receipt,'utf8')).status).toBe('rolled-back');
+  expect(doc.querySelector('.pga-transaction-entry h4')?.textContent).toContain('rolled-back');
+  await invoke(button('Review diffs and status'));
+  expect(doc.body.textContent).toContain('Transaction details · rolled-back');
+  expect(doc.body.textContent).toContain('This transaction has no available recovery action.');
+  expect(Array.from(doc.querySelectorAll('button')).some(item=>item.textContent==='Rollback this transaction')).toBe(false);
   await historyView.onClose();await rm(home,{recursive:true,force:true});dom.window.close();
 });

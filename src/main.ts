@@ -170,6 +170,7 @@ class Workbench extends ItemView {
               : await rollbackTransactionJournal(selectedCorpus, transaction.path);
             container.createEl('p', { text: 'Transaction restored to its before-state. ' + result.restored + ' file(s) restored.' });
             status.setText('Transaction restored. Later edits were protected by target hash checks.');
+            await loadHistory();
           } catch (error) {
             container.createEl('p', { text: error instanceof Error ? error.message : 'Transaction recovery failed.' });
             action.disabled = false;
