@@ -11,7 +11,7 @@
 5. 本機核對回傳 schema、來源路徑、原文摘錄及檔案 hash，然後顯示 diff 和證據。模型無法指定另一個更新目標，也不直接執行寫入。
 6. 閱讀差異與證據，另勾選已審核後按 Apply。僅更新該現有 Markdown。Rollback 拒絕覆蓋後續人工修改。
 
-交易紀錄含完整 before/after，保存在使用者 home 下 `.knowledge-agent/transactions/*.private.json`（舊路徑保留以相容既有安裝資料），不在 Vault 內；請當作私密復原資料。現在的介面提供當次更新的回復按鈕，跨重啟的交易歷史 UI 尚待完成，可先用 CLI 對保存的紀錄回復。
+交易紀錄含完整 before/after，保存在使用者 home 下 .knowledge-agent/transactions/*.private.json（舊路徑保留以相容既有安裝資料），不在 Vault 內；請當作私密復原資料。Workbench 的 Transaction history 可列出設定 Corpus 的 journal；使用者開啟單筆紀錄後會看到保存的 diff 與目前 before/after/conflict/missing 狀態。Rollback/Recover 需再次勾選明確同意，並會寫回終態。CLI 也可用 inspect --vault ... --transaction ... 檢視，或用 recover --vault ... --transaction ... 在所有目標符合已知雜湊時復原 pending journal。實際 Obsidian Windows recovery UI 尚待 disposable Vault 驗證。
 
 ## CLI 操作
 

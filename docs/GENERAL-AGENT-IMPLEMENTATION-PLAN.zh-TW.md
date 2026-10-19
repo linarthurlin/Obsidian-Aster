@@ -1,6 +1,6 @@
 # Aster 通用 AI Agent Plugin — Implementation Plan
 
-> 研究修訂版：2026-10-18。產品名稱已定為 Aster；本文件更新規劃與品牌，不代表後續功能已實作。Theme、Companion、Aster 維持三個獨立 repo 與獨立發布。
+> 研究修訂版：2026-10-18。產品名稱已定為 Aster；本文件更新規劃與品牌，不代表後續功能已實作。Halo Theme、Orbit、Aster 維持三個獨立 repo 與獨立發布。
 
 ## 產品定位與關鍵取捨
 
@@ -20,11 +20,28 @@ Aster 是 Obsidian 裡的 Codex 優先 Agent 工作台：提供多對話、model
 
 ## 現況基線
 
-目前 0.2.1 已有明確資料夾範圍、本機有限制詞彙檢索、完整 context 預覽、Codex CLI 單次唯讀提案、來源摘錄／路徑核對、逐筆 diff 審核、單一既有 Markdown 的明確套用、外部 transaction journal 與保守 rollback，也有離線 search/propose/review/apply/rollback CLI。
+目前 0.2.1 已有明確資料夾範圍、本機有限制詞彙檢索、完整 context 預覽、Codex CLI 單次唯讀提案、來源摘錄／路徑核對、逐筆 diff 審核、單一既有 Markdown 的明確套用、外部 transaction journal 與保守 rollback/recovery，也有離線 search/propose/review/apply/inspect/recover/rollback CLI。
 
-目前 Codex 路徑刻意使用 ephemeral/read-only 執行、停用 shell/web/plugins，並沿用 Codex 自己的登入；外掛不讀取或保存憑證。升級為長連線 Agent loop 前，必須完成 runtime 能力與安全邊界的對照測試，不能因競品能呼叫工具就放寬權限。
+目前一般 Chat 使用 Codex 持久 thread 以支援重新開啟與跨重啟恢復；每個 thread 使用 read-only sandbox，停用 shell/web/plugins，並沿用 Codex 自己的登入。Aster 與 Codex 各保存一份對話紀錄；清除 Aster chat 只會清除 Aster transcript 和 session link，Codex session 需在 Codex 端管理。外掛不讀取或保存憑證。知識操作的 provider/tool 權限仍須逐項做 runtime 對照測試，不因競品能力而放寬。
 
-ROADMAP 未完成項目仍有效：繁中／混合語言檢索品質、跨重啟交易歷史、crash journal 復原、folder chooser、搜尋導覽、多筆提案審核、真實 Obsidian 執行、取消流程、主題共存與無障礙。先補足再增加自動化。
+ROADMAP 未完成項目仍有效：繁中／混合語言自然改寫檢索品質、真實 Obsidian 執行、取消流程、主題共存與無障礙。多目標提案與逐筆審核已完成受限切片：2–4 篇、合計最多 48,000 字元，完整預覽後由模型只對所選目標回傳修改；每張卡片有獨立核准、套用和 journal rollback，端到端測試證明未核准目標保持原文。Corpus 搜尋、新分頁導覽及 Corpus 範圍內 backlinks 已有合成 UI 測試；backlink 使用官方 `MetadataCache.resolvedLinks` 的來源→目標索引，結果來源再由 Corpus 路徑清單過濾，避免為 backlink 顯示讀取 note body。這與社群 Better Backlinks 將 Obsidian link index 作為 direct backlink 來源的做法一致；title match／unlinked mention 會走全庫檔名或正文檢索，因此先排除在這個 scoped MVP 之外。[MetadataCache API](https://docs.obsidian.md/Reference/TypeScript%2BAPI/MetadataCache)；[Better Backlinks privacy notes](https://github.com/MrVersano/obsidian-better-backlinks#privacy)。檢索評估已擴大為 12 個 zh/en/mixed lexical queries（含 CJK phrase/split query、body-only、同名干擾與長筆記 locator）及 3 個人工標記 paraphrase；lexical Recall@3=1、MRR/nDCG ≥0.9，locator 驗證通過，但 paraphrase Recall@3 僅 1/3。MiniSearch 的 BM25+／欄位權重有利於頻率與欄位排序，但其設計不內建 locale tokenizer；FlexSearch 提供 CJK Word Break encoder，Omnisearch 使用 BM25 並指出中文需要額外索引支援。[MiniSearch design](https://github.com/lucaong/minisearch/blob/master/DESIGN_DOCUMENT.md)；[FlexSearch CJK encoder](https://github.com/nextapps-de/flexsearch/blob/master/doc/encoder.md)；[Omnisearch search behavior](https://github.com/scambier/obsidian-omnisearch)。目前精確 lexical baseline 已達合成門檻，新增 tokenizer/ranker 不會解決無詞彙交集的語意改寫；先保留無持久索引、明確觸發、Corpus 預算內的本機流程，擴大自然 query set 並測量 precision/latency 後，再評估 CJK segmentation/BM25 adapter；本機 embedding/reranker 仍要另證隱私、模型供應與成本可行性。pending journal inspect/recovery CLI 與跨重啟交易歷史 UI 已有保守復原和 synthetic plugin reload 測試；真實 Obsidian runtime/recovery flow 待驗證。Corpus folder chooser 和受限 folder context 已完成基礎切片，詳見以下進度。
+
+## 本次實作進度（2026-10-18）
+
+- 已新增獨立 Aster Chat view、session 清單、建立／清除、按標題搜尋／重新命名、多 session 歷史、Markdown 顯示、即時串流與取消。
+- 每個 session 可指定 model/thinking；model catalog 由本機 Codex app-server model/list 載入。查詢 catalog 不會送出 prompt；catalog 不代表帳戶權限保證。
+- 已加入可鍵盤操作的 slash prompt recipe 選單（摘要、解釋、發想、綱要、改寫、繁中翻譯）；選取後展開為可見且可編輯的普通 composer 文字，不授予 Agent 額外能力。
+- Chat 改用 Codex app-server `0.162.x` minor-gated persistent threads，將 `threadSource` 標記為 `aster`，保存 provider thread ID 並以 `thread/resume` 恢復。工具類別和 MCP 關閉、Codex 自動載入的 project documents 上限為零、thread cwd 位於系統暫存目錄、read-only sandbox、turn network 關閉；任何未知 tool item/server request 都 fail closed。Aster 只把使用者明確設定的 Project 指示快照傳入 thread base instructions，限制 6,000 字元並保留原有 text-only 邊界。Aster transcript 保存在 `.aster/chats/`；Codex 也會保存自己的 session。
+- Windows Codex CLI 0.162.1 合成 gate：ephemeral thread 多回合串流及 usage 成功；canary 工具邊界測試未讀出檔案且未觀察到工具 item；取消收到 ACK 並以 `interrupted` 結束，但沒有 final usage notification。持久 thread 跨 app-server process resume 成功，恢復相同 `threadSource=aster` session 並取回合成記憶句，兩回合都回報 usage；probe session 已封存。Context meter 使用 `last.totalTokens` 和每回合最新 `modelContextWindow`，依官方 TUI baseline 計算；取消／compaction／模型變更時標示舊值可能過期。同一 thread 的 window 會依 provider 回報更新，不假設固定窗口。
+- Fake app-server 測試已覆蓋多 chat 交錯、Aster transcript restore、持久 thread resume、未支援 CLI minor 啟動前拒絕、未知 command item 中止、取消、meter，以及 Project 指示在 start/resume 兩條路徑保持相同且不超過 6,000 字元；jsdom Chat view 測試覆蓋串流輸出、保存 transcript、60% provider meter、view 關閉重開後恢復同一 Codex thread、Clear 在暫停中的 atomic rename 完成後才刪除 transcript 的確定性競態、Quick Ask 草稿，以及 Project 建立／編輯後新舊 chat 指示快照隔離。2026-10-18 在隔離 disposable Vault 以 Obsidian 1.14.4 / Aster 0.2.1 確認外掛與 commands 載入、Codex model/thinking catalog、多 chat reload 還原、Project 指示快照、Skill slash、Quick Ask 草稿；沒有讀取個人 Vault 或送出 model turn。真實 streaming/cancel、dynamic tools 與完整整合仍待驗證。
+- 已加入 Quick Ask: selected text 命令：只讀取當前 Markdown 編輯器的明確選取（上限 12,000 字元），建立獨立對話，將來源路徑與選取內容放入可見、可編輯草稿；使用者按 Send 前不送出，也不替換原文。
+- Projects 可在 Aster 設定中建立、編輯與刪除，並把新 chat 指派至全域或所選 Project。Project instructions 顯示在 chat 中並以 JSON context 傳給 Codex，限制 6,000 字元；每個 chat 固定建立時的名稱與指示快照，修改後只套用於新 chat。Project 不會附加 Vault 檔案或資料夾；Clear chats 保留 Project 設定。
+- 「Attach active note to Aster draft」命令只讀取目前 Markdown 編輯器 buffer（包含尚未存檔的編輯），限制 24,000 字元，將路徑與完整內容放入目前 Chat 的可見 composer；若沒有 Chat 則建立一個。草稿明確標示筆記是未受信任的來源內容，由使用者檢查後自行送出；不呼叫 Vault-wide API、不掃描、不隱藏附加、不改寫筆記。超過限制時拒絕且不截斷。真實 Obsidian buffer/runtime 尚待 disposable Vault 驗證。
+- Chat 可在設定 Corpus 中以 Obsidian fuzzy picker 選擇單篇 Markdown note，或選擇 Corpus 子資料夾作為 context；path-only 清單不讀筆記內容，選取後才讀單一筆記或至多 6 篇資料夾筆記。Folder context 總量上限 24,000 字元，超限不截斷、不建立部分預覽；完整來源快照先顯示，加入 composer 後仍須自行按 Send。Aster 設定的 Corpus folder chooser 使用官方 `Vault.getAllFolders(false)`／`TFolder` 取得可見資料夾中繼資料，以 `visiblePath` 過濾、以既有 `resolveScope` 驗證並保存；文字路徑輸入仍可用。此設計採「API metadata + Obsidian fuzzy picker + Aster path validator」，比只輸入路徑更容易選對資料夾，又避免讀取 note bodies。[Obsidian Vault API](https://docs.obsidian.md/Reference/TypeScript%2BAPI/App/vault)；Copilot 的設定仍採 folder path 欄位加明確 Apply/validation，可作為保留文字輸入的參照：[Copilot BasicSettings](https://github.com/logancyang/obsidian-copilot/blob/master/src/settings/v2/components/BasicSettings.tsx)。
+- Skills MVP 已實作：遵循 Agent Skills `SKILL.md` 的 name/description/frontmatter 慣例，存在使用者 profile 的 `.aster/skills`，最多 40 個；支援建立、編輯、刪除和 slash menu 呼叫。只讀取單一 `SKILL.md`，不解析其引用檔、不執行 scripts、不授予工具或 Vault 權限；呼叫時完整展開成可見、可編輯的 user message，並保留在本機 transcript。`allowed-tools` 不予採用，因為 Aster 權限由 Aster 自己的 Tool Router 管理。
+- Workbench 現可用 Ctrl-click 選取 2–4 篇 Corpus 目標；target 文字合計上限 48,000 字元，來源證據最多 6 段。精確 context 先完整預覽並明確同意，再讓 Codex 只回傳屬於所選路徑的 operation。每篇提案分開顯示 diff 和來源摘錄，勾選只核准該篇；每次套用建立單筆 transaction journal，可各自 rollback。合成端到端測試使用假的 provider process 與 disposable Corpus，證明一項套用／回復不影響另一個未核准目標。
+- Vault Curator 有明確觸發的 Corpus link-health、重複標題與零位元組筆記候選：link health 只查詢選定 Corpus note paths 對應的 Obsidian `MetadataCache.unresolvedLinks`／`resolvedLinks` source keys；標題檢查只使用設定 Corpus 的相對 Markdown 路徑，依 NFKC 與大小寫正規化分組；空筆記檢查只讀 Corpus 內 `TFile.stat.size`，最多 2,000 個檔案，不讀正文。三種規則都不列舉 Corpus 外的 link source、不呼叫模型、不寫入，finding 開啟時重新驗證 scope。未解析連結、沒有 Corpus 內入向連結、重複檔名和零位元組檔案都只是 review candidate；空白佔位檔可能是刻意安排。設計採 Vault Inspector 的 read-only findings/evidence 方向；格式／YAML lint 留給成熟的 Obsidian Linter，不重做其規則。[Obsidian `unresolvedLinks` API](https://docs.obsidian.md/Reference/TypeScript%20API/MetadataCache/unresolvedLinks)；[Obsidian Vault API](https://docs.obsidian.md/Reference/TypeScript%2BAPI/App/vault)；[Vault Inspector link checks and confidence model](https://github.com/rogerdigital/vault-inspector#broken-links)；[Obsidian Linter](https://github.com/platers/obsidian-linter)。
+- 一般 Chat 工具活動與每個 session 獨立選擇加入的唯讀 Corpus 搜尋／單篇讀取已實作；Codex 仍沒有一般 Obsidian 寫入操作。Research Desk 支援明確選取 Markdown／Zotero annotation／PDF source set、來源 hash／heading／行號／PDF 頁碼 locator、可編輯的新 Chat 草稿、citation-ID membership check、綁定 evidence digest 的 Markdown blockquote exact-match audit，以及未送出的 fresh-thread claim-review draft。PDF 直接擷取使用 Obsidian host PDF.js，在 Workbench 可指定頁面範圍，並限制每份 12 MB／120 頁、source set 240 頁及 100,000 擷取字元；合成 PDF.js、source freshness 和 Workbench UI 測試通過。Bibliography 有 deterministic metadata-only Markdown 預覽與點擊複製；缺少欄位明確標示，不產生 APA/MLA/CSL 假精確格式，逐字引用核對已有 synthetic cases；fresh-thread 模型 review 可將原子主張分類並提出局部修復建議，但必須人工審閱，模型分類品質與 Research claim-review 互動仍待驗證；PDF host extraction／range／cancel 的 runtime evidence 僅限下方 disposable smoke。Knowledge Studio 深度整合與完整 Vault Curator 規則集也仍待完成。Corpus 搜尋、範圍內 backlinks 與開啟筆記、Folder chooser、單篇與受限資料夾 context、受限多目標 context、metadata-only link health／title candidates、journal recovery、跨重啟歷史 UI 和 Chat dynamic tool loop 已有合成測試；dynamic tools 依賴 Codex App Server experimental/under-development protocol，Corpus cache 的 create／modify invalidation、warm reuse，以及 2,000-note／20,000,000-byte 實際上限已有 disposable runtime evidence；該上限冷建後整個 renderer heap 增加 40,719,724 bytes（暖搜尋再增 13,096 bytes，包含 Obsidian/UI，非 Aster-only attribution）；Aster Obsidian UI 已實機通過 search→read 動態工具回圈；protocol drift、取消與 reload 邊界仍待驗證。
 
 ## ANKS 與 Building a Second Brain
 
@@ -78,15 +95,15 @@ ANKS 沒有公認且唯一的公開定義；此計畫沿用先前討論的工作
 - 送出前顯示 provider、model、thinking、Project/Skill、附件範圍、外傳內容與目的地；回答附引用 path/heading/locator。
 - slash menu 支援 Skills、命令和小型工作流程；Skill 不授予權限，讀寫由 Tool Router 控制。
 - 選取文字可 Quick Ask；支援續談、複製或建立待審核 patch，不直接替換原文。
-- Theme token 是漸進外觀適配；缺少 Personal Glass 時 fallback 到 Obsidian 原生 CSS variables。
+- Halo token 是漸進外觀適配；缺少 Halo Theme 時 fallback 到 Obsidian 原生 CSS variables。
 
 ## 架構與安全設計
 
 Workbench 管對話、composer、meter、工具活動和 approvals；Thread Registry 隔離 sessions；Project/Skill/Mode Registry 管 prompt、context builder、schema、tools 和權限；Provider Adapter 對接 Codex CLI；Tool Router 將請求映射成固定 Obsidian API；Evidence Store 保存 source locators；Journal 管提案、交易和復原。索引是可重建快取，不是第二個知識主庫。
 
-Codex App Server 官方協定提供 model/list、thread start/resume、事件串流、approvals、token usage。Model list 不保證帳戶實際有權使用。Grimoire 已採 Codex App Server，因此 Phase 0 比較 Codex exec 與 app-server 在 Windows 支援、session 歷史、穩定度、cancel、meter 和工具權限後再選路徑；協定整合本身不是產品差異。[App Server](https://developers.openai.com/codex/app-server) [Model list](https://developers.openai.com/codex/app-server#list-models)
+Codex App Server 官方協定提供 model/list、thread start/resume、事件串流、approvals、token usage。Model list 不保證帳戶實際有權使用。Grimoire 已採 Codex App Server；Aster 使用標記為 `aster` 的持久 thread，以保留 app-server 端的對話狀態並在重啟後恢復。使用者可在 Aster 清除本機 transcript 和連結，但 Codex session 需在 Codex 端管理。此生命週期已用 Windows `0.162.1` 完成跨 process synthetic gate；未測 minor 在載入 model catalog／Chat 前拒絕。[App Server](https://developers.openai.com/codex/app-server) [Model list](https://developers.openai.com/codex/app-server#list-models)
 
-Per-session meter 使用 Codex usage update 的 active/last token count 與 modelContextWindow；compaction 後降低是正常、換模型清除舊窗口、resume 後再同步，缺資料顯示 unknown。[Usage schema](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/v2/ThreadTokenUsageUpdatedNotification.json) [Codex TUI calculation](https://github.com/openai/codex/blob/main/codex-rs/tui/src/token_usage.rs)
+Per-session meter 使用 Codex usage update 的 `last.totalTokens`（active context）與 `modelContextWindow`，採 Codex TUI 的 12,000-token baseline。window 依 provider 每回合更新；缺資料顯示 unknown，取消未收到通知時保留最後值並標 stale。真實 compaction 和 Windows Obsidian UI 仍需 runtime 驗證。[Usage schema](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/v2/ThreadTokenUsageUpdatedNotification.json) [Codex TUI calculation](https://github.com/openai/codex/blob/main/codex-rs/tui/src/token_usage.rs)
 
 讀寫透過 Obsidian Vault API 的明確介面；套用前重比對來源和目標，遇到人工修改就停止。[Vault API](https://docs.obsidian.md/Plugins/Vault)
 
@@ -111,19 +128,21 @@ Per-session meter 使用 Codex usage update 的 active/last token count 與 mode
 
 ### Phase 1 — 一般 Agent workspace
 
-實作 thread registry、多對話、model/thinking picker、context meter、stream/cancel、Project、Skills、slash menu、Quick Ask 和工具活動。首發 Codex 單一 provider，包含 capability flags 和 graceful fallback。一般 Chat 不自動附加 Vault。
+實作 thread registry、多對話、model/thinking picker、context meter、stream/cancel、Project、Skills、slash menu、Quick Ask 和工具活動。首發 Codex 單一 provider，包含 capability flags 和 graceful fallback。一般 Chat 不自動附加 Vault。唯讀 Corpus search/read dynamic tools 已有逐 session 開關、schema allowlist、範圍重驗、呼叫次數和輸出大小限制；因依賴 under-development API，先作 opt-in preview，待版本相容矩陣與 Obsidian runtime 驗證後再擴充。
 
 ### Phase 2 — Scoped Obsidian 工具與交易復原
 
-加入選取文字／目前 note／指定 notes/folder、搜尋、backlinks 和 open note；送出前預覽完整 context。擴展 proposal transaction；補跨重啟歷史、pending journal recovery、folder chooser、搜尋導覽、多筆逐一審核及 keyboard/accessibility。
+加入選取文字／目前 note／指定 notes/folder、搜尋、backlinks 和 open note；送出前預覽完整 context。Corpus folder chooser、單筆 note preview、最多 6 篇／24,000 字元的 Chat folder context，以及最多 4 篇／48,000 字元的 Workbench multi-target context 已完成受限切片。提案陣列只接受明確選取的目標和核准摘錄；每項 diff 獨立勾選、套用與 rollback，journal 一次記錄一個已核准目標。跨重啟歷史、pending journal recovery、搜尋導覽及合成多筆逐項審核已完成；仍需真實 Obsidian recovery、取消與鍵盤／無障礙驗證。
 
 ### Phase 3 — Knowledge Studio 與中英檢索評估
 
-將 Workbench 升格為任一 session 可選的 Knowledge Studio。保留詞彙 baseline，加入繁中斷詞或 char n-gram、中英混合排序、heading/path boost、Wikilink graph expansion 與引用。用合成語料評估 Recall@k、MRR/nDCG、locator validity、context budget 和 latency。先證明 lexical baseline 不足，再評估本機 embedding/reranker；不預設全 Vault 背景索引。
+將 Workbench 升格為任一 session 可選的 Knowledge Studio。保留詞彙 baseline，加入繁中斷詞或 char n-gram、中英混合排序、heading/path boost、Wikilink graph expansion 與引用。已新增 12 個合成 lexical query 和 3 個人工 paraphrase query，量測 Recall@3/MRR/nDCG、長筆記 excerpt locator 和 CJK/same-basename distractor；lexical Recall@3=1、MRR/nDCG ≥0.9，paraphrase Recall@3=1/3。這證實無共同詞彙的改寫仍是明確缺口，但 CJK segmentation 與 BM25 主要改善切詞和排序，不能單獨提供語意檢索。下一步先擴大 query 集並量測 precision、context budget、latency，再決定是否採無持久索引的 CJK tokenizer/BM25 ranking；embedding/reranker 另需證明本機隱私與分發可行性，不預設全 Vault 背景索引。
 
 ### Phase 4 — Research Desk 與 Vault Curator
 
-Research Desk 支援明確選定的 Markdown/PDF/Zotero annotation，保留 citation key、頁碼／heading locator、source hash 和摘錄，輸出引用式 synthesis/bibliography proposal。Curator 由 deterministic rules 產生 findings，AI 只解釋或提議修復；格式規則沿用 Linter，不做無人審核批次整理。
+Research Desk 支援明確選取 1–6 篇 Corpus Markdown／PDF（包括 Zotero Integration 匯出的 annotation notes），Markdown 從程式碼區塊以外的 prose、PDF 從明確指定頁面的可選文字建立 source set，保留 citation key、來源 SHA-256、heading／行號、PDF page number／label、Zotero item key／頁碼和 bounded evidence。PDF 使用 Obsidian host `loadPdfJs()`，不另外封裝 PDF.js/worker；Community 的 Library Search 使用同一 host library。頁面上限為每 PDF 120 頁、每檔 12 MB、每 source set 240 個選取頁面、每 PDF 100,000 擷取字元；每個來源最多 120 個 evidence blocks，整體 source set 最多 120 blocks／24,000 字元，超出文字預算時需縮小來源範圍，不靜默截斷；掃描頁不做 OCR。PDF helper、範圍解析、取消、source hash、節流頁面進度及 Workbench UI 有 synthetic tests；Research Desk 的 aria-live progress 於首末頁及每 10 頁提示，方便監看長文件並取消。2026-10-18 disposable Obsidian 1.14.4 runtime 以一頁 PDF 確認 host helper 可擷取文字及 p.1 locator，四頁 PDF 明確選取 2–3 後只留下 p.2/p.3 evidence、排除 p.1；空白 p.4 顯示需 OCR/Zotero 的 no-selectable-text fallback；一頁只有 raster image、無文字層的 PDF 也回報相同 fallback 且不建立 evidence preview。100 頁 PDF 在 document 載入後由首頁進度觸發 Cancel，確認無 evidence preview 或 Chat draft；新增 runtime 確認 41 個有文字頁可生成 41 blocks、121 頁 PDF 明確選取 1–121 會在文字擷取前拒絕而 1–120 可成功、兩個 120 頁來源可完成 240-page source set，第 241 頁則在擷取前拒絕且無部分 preview。真實 `getTextContent()` pending 中止仍由 deterministic synthetic test 覆蓋。[Library Search](https://community.obsidian.md/plugins/library-search)、[Obsidian `loadPdfJs()` reference](https://marcusolsson.github.io/obsidian-plugin-docs/reference/typescript/functions/loadPdfJs)、[PDF.js `getTextContent()`](https://mozilla.github.io/pdf.js/api/draft/module-pdfjsLib-PDFPageProxy.html)。完整引用式 synthesis prompt 先在 Workbench 預覽；建立獨立 Chat 前會重查來源 hash 與 scope，然後把草稿放入可編輯 composer。每則 assistant 回覆會檢查 evidence ID membership，並對 Markdown blockquote 依 evidence digest 做精確摘錄比對；這只驗證引用文字是否存在於選定 excerpt，不驗證 source truth 或 claim support。按鈕會準備一份 fresh-thread claim-review prompt，要求逐條拆分、分類 Supported／Contradicted／Insufficient／Uncited 並給局部修復建議；草稿不自動送出，模型判斷仍需人工審閱。Obsidian Vault API 用於明確選取後的文字／二進位檔讀取；Zotero Integration templates 可輸出 annotatedText、comment 與 page。[Obsidian Vault API](https://docs.obsidian.md/Reference/TypeScript%2BAPI/App/vault)、[Zotero Integration templating](https://github.com/community-archive/obsidian-zotero-integration/blob/main/docs/Templating.md)。
+
+尚待獨立評估引用段落與主張的支持品質，以及 claim-review 模型分類準確度；目前 AI 分類／局部修復以可編輯、未送出的 fresh-thread prompt 提供，輸出仍需人工審查。Aster 的 metadata-only bibliography 不取代 Zotero Integration 的 Quick Copy citation style 或 BibLib 的 CSL-JSON／BibTeX bibliography file export。[Zotero Integration](https://community.obsidian.md/plugins/obsidian-zotero-desktop-connector)、[BibLib](https://community.obsidian.md/plugins/biblib)。Curator 由 deterministic rules 產生 findings，AI 只解釋或提議修復；目前 link-health 只讀選定 Corpus 的 Obsidian link metadata；重複標題候選只用 Corpus 路徑清單和 NFKC／大小寫正規化；零位元組筆記候選只讀最多 2,000 篇所選 Markdown 的 Obsidian 檔案大小 metadata。這些訊號都不宣稱必定損壞、孤立、衝突或應刪除。後續評估 missing attachment／空白內容／frontmatter consistency 前，需先明確訂資料來源與讀取預算；格式規則沿用 Linter，不做無人審核批次整理。
 
 ### Phase 5 — Tasks/Dataview/Canvas/Excalidraw adapters
 
@@ -142,7 +161,7 @@ Research Desk 支援明確選定的 Markdown/PDF/Zotero annotation，保留 cita
 - Recovery：pending journal、部分失敗、人工修改阻止套用／rollback、逐筆核准。
 - Retrieval eval：繁中、英文、中英混合、改寫、同名檔、長筆記、相似干擾項；引用可回到原檔和 heading/page。
 - Integrations：選配外掛缺席時安全降級；Tasks/Zotero/Linter/Dataview/Excalidraw 按各自 API 測，不讀 private data.json。
-- Runtime：disposable synthetic vault 的 Windows Obsidian 實測、取消、重新載入、多 chat、原生／Personal Glass theme 共存、鍵盤和 reduced motion。
+- Runtime：disposable synthetic vault 的 Windows Obsidian 實測、取消、重新載入、多 chat、原生／Halo Theme 共存、鍵盤和 reduced motion。
 - Release：Windows/Linux CI、typecheck/build/test/validate/package；package 不含私人 note、token、context/proposal/receipt、transcript 或 CLI config。
 
 Desktop-only 是本機 Codex CLI 的合理首發限制；其他平台要說明 provider 不支援，不偷偷切換雲端 API。
@@ -151,11 +170,17 @@ Desktop-only 是本機 Codex CLI 的合理首發限制；其他平台要說明 p
 
 GitHub repository 與 local workspace 使用 Obsidian-Aster；外掛顯示名稱為 Aster；npm package 與 release artifact 使用 Aster。manifest/plugin ID 和安裝資料夾保留 knowledge-agent，避免 Obsidian 將現有安裝當作另一個外掛並造成重複安裝或設定遺失。若未來需要新 ID，另立遷移設計並測試資料／路徑相容。既有 .knowledge-agent transaction journal 路徑也保留，不移動、不刪除。
 
-Theme 與 Companion repo 不隨本次更名；Aster 繼續遵循 integration contract，並能獨立運作。
+Halo Theme 與 Orbit repo 各自獨立；Aster 繼續遵循 integration contract，並能獨立運作。
 
 ## 參考資料
 
 - [Community Plugin — Copilot](https://community.obsidian.md/plugins/copilot)
+- [Copilot Project workspaces](https://github.com/logancyang/obsidian-copilot/blob/master/docs/projects.md)
+- [Copilot Skills and tool behavior](https://github.com/logancyang/obsidian-copilot/blob/master/docs/agent-mode-and-tools.md)
+- [Agent Skills format specification](https://github.com/agentskills/agentskills/blob/main/docs/specification.mdx)
+- [Codex Skills documentation](https://developers.openai.com/codex/skills/)
+- [Copilot Chat context attachments](https://github.com/logancyang/obsidian-copilot/blob/master/docs/chat-interface.md)
+- [Obsidian Vault read API](https://docs.obsidian.md/Plugins/Vault)
 - [Community Plugin — Grimoire](https://community.obsidian.md/plugins/grimoire)
 - [Community Plugin — Tasks](https://community.obsidian.md/plugins/obsidian-tasks-plugin)
 - [Community Plugin — Zotero Integration](https://community.obsidian.md/plugins/obsidian-zotero-desktop-connector)

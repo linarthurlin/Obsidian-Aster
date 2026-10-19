@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { install } from '../scripts/install.mjs';
 it('installs only Agent artifacts and preserves notes, config and plugin data', async () => {
-  const vault = await mkdtemp(join(tmpdir(), 'personal-glass-'));
+  const vault = await mkdtemp(join(tmpdir(), 'aster-install-'));
   await mkdir(join(vault, '.obsidian/plugins/personal-glass'), { recursive: true });
   await mkdir(join(vault, '.obsidian/plugins/knowledge-agent'), { recursive: true });
   const preserved = ['note.md', '.obsidian/appearance.json', '.obsidian/community-plugins.json', '.obsidian/plugins/personal-glass/data.json', '.obsidian/plugins/knowledge-agent/data.json'];
@@ -18,8 +18,8 @@ it('installs only Agent artifacts and preserves notes, config and plugin data', 
   for (const path of preserved) expect(await readFile(join(vault, path), 'utf8')).toBe('UNCHANGED');
 });
 it('rejects directory junctions before writing outside the selected vault', async () => {
-  const vault = await mkdtemp(join(tmpdir(), 'personal-glass-'));
-  const outside = await mkdtemp(join(tmpdir(), 'personal-glass-outside-'));
+  const vault = await mkdtemp(join(tmpdir(), 'aster-install-'));
+  const outside = await mkdtemp(join(tmpdir(), 'aster-install-outside-'));
   await symlink(outside, join(vault, '.obsidian'), process.platform === 'win32' ? 'junction' : 'dir');
   await expect(install(vault)).rejects.toThrow('Unsafe installation directory');
 });

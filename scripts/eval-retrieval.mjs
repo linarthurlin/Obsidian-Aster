@@ -1,0 +1,173 @@
+// Repeatable, offline retrieval evaluation over generated synthetic notes only.
+// This runner has no Vault path argument and never reads the user's Corpus.
+import { randomUUID } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { performance } from 'node:perf_hooks';
+import { LIMITS, invalidateCorpusSearchIndex, listNotes, searchCorpus } from '../workflow/corpus.mjs';
+import { buildSegmentedBm25Index, searchSegmentedBm25, tokenizeTerms } from './retrieval-baselines.mjs';
+import { developmentQueries as queries } from './retrieval-development-set.mjs';
+const nearLimit = process.argv.includes('--near-limit');
+
+const canonicalNotes = {
+  'Research/神經可塑性.md': '# 神經可塑性\n\n神經可塑性描述神經連結如何因學習與經驗改變。這篇說明大腦因學習改變連結，並討論新技能練習。\n',
+  'Research/大腦學習.md': '# 大腦學習\n\n探討大腦學習、神經可塑性和不同學習方法，並比較練習如何形成新技能。\n',
+  'Research/Neural circuits.md': '# Neural circuits\n\nNeural circuits coordinate signals between regions. Neurons communicate through electrical signals and synchronized synaptic activity.\n',
+  'Research/Memory consolidation.md': '# Memory consolidation\n\n記憶鞏固（memory consolidation）穩定新學到的資訊。Consolidation stabilizes memories over time after learning.\n',
+  'Research/Memory retrieval.md': '# Memory retrieval\n\nRetrieval practice and spaced repetition can support memory retention and later recall. The spacing effect supports learning across sessions. 間隔練習有助於記憶提取。\n',
+  'Research/Sleep and memory.md': '# Sleep and memory\n\n睡眠期間，新記憶會逐步穩定並進行鞏固。Sleep supports memory stabilization after learning.\n',
+  'Knowledge/AI 知識整理.md': '# AI 知識整理\n\nAgent workflow 以引用與來源追溯維護知識庫，讓讀者能回到原始證據。\n',
+  'AI/Knowledge Workflow.md': '# Knowledge workflow for AI\n\nAn AI agent uses a reviewable workflow to preserve citations, evidence, and source provenance.\n',
+  'AI/Agent Workflow.md': '# Agent workflow\n\nThe AI knowledge workflow connects source notes, citations, and review steps before a proposal is applied.\n',
+  'Research/Source provenance.md': '# Source provenance\n\nCitation provenance records the source path and exact excerpt for each claim. 來源路徑與精確摘錄讓引用可追溯至原始段落。\n',
+  'Research/Citation formats.md': '# Citation formats\n\nCitation formats differ. A source citation should identify the evidence location and preserve an exact excerpt.\n',
+  'Research/Meeting.md': '# Meeting decisions\n\nDecisions assign an owner and deadline to each follow-up. 會議決策記錄負責人與截止日期。\n',
+  'Archive/Meeting.md': '# Archived meeting\n\nHistorical decisions list an owner; the deadline was removed from this archived record.\n',
+  'Research/Meeting template.md': '# Meeting template\n\nA meeting template captures an owner and deadline for follow-up, but it is not a record of decisions.\n',
+  'Reference/Citation examples.md': '# Citation examples\n\nCitation format examples demonstrate source path and quote styles, not the provenance history of a claim.\n',
+  'Archive/Memory glossary.md': '# Memory glossary\n\nMemory retrieval, memory consolidation, and sleep are distinct topics in this index; definitions are intentionally omitted.\n',
+};
+
+function quantile(values, proportion) {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * proportion) - 1)] || 0;
+}
+
+function scoreGroup(records) {
+  let precisionAt3 = 0, recallAt3 = 0, reciprocalRank = 0, discountedGain = 0, idealGain = 0;
+  for (const { query, hits } of records) {
+    const relevant = new Set(query.relevant);
+    const top3 = hits.slice(0, 3);
+    precisionAt3 += top3.filter(hit => relevant.has(hit.path)).length / 3;
+    recallAt3 += top3.filter(hit => relevant.has(hit.path)).length / relevant.size;
+    const rank = hits.findIndex(hit => relevant.has(hit.path));
+    if (rank >= 0) reciprocalRank += 1 / (rank + 1);
+    for (const [index, hit] of hits.entries()) if (relevant.has(hit.path)) discountedGain += 1 / Math.log2(index + 2);
+    for (let index = 0; index < Math.min(5, relevant.size); index++) idealGain += 1 / Math.log2(index + 2);
+  }
+  const count = records.length;
+  if (!count) return { queries: 0, precisionAt3: 0, recallAt3: 0, mrrAt5: 0, nDcgAt5: 0 };
+  return {
+    queries: count,
+    precisionAt3: precisionAt3 / count,
+    recallAt3: recallAt3 / count,
+    mrrAt5: reciprocalRank / count,
+    nDcgAt5: idealGain ? discountedGain / idealGain : 0,
+  };
+}
+
+const parent = join(resolve('.local'), 'retrieval-eval');
+await mkdir(parent, { recursive: true });
+const root = await mkdtemp(join(parent, randomUUID() + '-'));
+try {
+  const documents = { ...canonicalNotes };
+  const filler = 'Synthetic archive material about unrelated backups, catalog maintenance, and local operational history. ';
+  const fillerRepeat = nearLimit ? 100 : 16;
+  const fillerLimit = nearLimit ? 19_000_000 : Number.POSITIVE_INFINITY;
+  let corpusBytes = Object.values(documents).reduce((sum, text) => sum + Buffer.byteLength(text), 0);
+  const fillerCountLimit = LIMITS.files - Object.keys(documents).length;
+  for (let index = 1; index <= fillerCountLimit; index++) {
+    if (!nearLimit && index > 300) break;
+    const content = `# Archive record ${index}\n\n${filler.repeat(fillerRepeat)}\n`;
+    const contentBytes = Buffer.byteLength(content);
+    if (corpusBytes + contentBytes > fillerLimit) break;
+    documents[`Scale/Archive-${String(index).padStart(4, '0')}.md`] = content;
+    corpusBytes += contentBytes;
+  }
+  for (const [path, content] of Object.entries(documents)) {
+    const target = join(root, path);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, content);
+  }
+
+  const casesToRun = nearLimit
+      ? ['記憶在睡眠期間穩定', 'AI knowledge workflow citations', 'brain rewiring'].map(value => queries.find(query => query.query === value))
+    : queries;
+  const measured = [];
+  for (const query of casesToRun) {
+    invalidateCorpusSearchIndex();
+    const started = performance.now();
+    const result = await searchCorpus(root, query.query, 5);
+    const elapsedMs = performance.now() - started;
+    if (result.scannedBytes > 20_000_000) throw new Error(`Search exceeded its byte budget for: ${query.query}`);
+    for (const hit of result.results) {
+      const source = await readFile(join(root, hit.path), 'utf8');
+      const beforeExcerpt = source.slice(0, source.indexOf(hit.excerpt));
+      if (!source.includes(hit.excerpt) || hit.startLine !== beforeExcerpt.split('\n').length)
+        throw new Error(`Invalid excerpt locator for ${query.query}: ${hit.path}`);
+      if (hit.excerpt.length > 420) throw new Error(`Search excerpt exceeded its limit for: ${query.query}`);
+    }
+    measured.push({ query, hits: result.results, elapsedMs, scannedBytes: result.scannedBytes,
+      excerptChars: result.results.reduce((total, hit) => total + hit.excerpt.length, 0) });
+  }
+
+  invalidateCorpusSearchIndex();
+  global.gc?.();
+  const heapBeforeIndex = process.memoryUsage().heapUsed;
+  const indexStarted = performance.now();
+  const warmed = await searchCorpus(root, casesToRun[0].query, 5);
+  const indexBuildAndFirstQueryMs = performance.now() - indexStarted;
+  global.gc?.();
+  const heapAfterIndex = process.memoryUsage().heapUsed;
+  const warmMeasured = [];
+  for (const query of casesToRun) {
+    const started = performance.now();
+    const result = await searchCorpus(root, query.query, 5);
+    const elapsedMs = performance.now() - started;
+    if (!result.cacheHit || result.scannedBytes !== 0) throw new Error('Warm Corpus search unexpectedly rebuilt or reread the local index.');
+    const coldResult = measured.find(item => item.query.query === query.query);
+    if (JSON.stringify(result.results) !== JSON.stringify(coldResult?.hits))
+      throw new Error(`Warm cached results differ from cold search for: ${query.query}`);
+    warmMeasured.push({ query, hits: result.results, elapsedMs, scannedBytes: result.scannedBytes, indexedBytes: result.indexedBytes, cacheHit: result.cacheHit });
+  }
+
+  const segmentedIndex = await buildSegmentedBm25Index(await listNotes(root), path => readFile(join(root, path), 'utf8'));
+    const experimental = casesToRun.map(query => {
+    const started = performance.now();
+    const hits = searchSegmentedBm25(segmentedIndex, query.query);
+    return { query, hits, elapsedMs: performance.now() - started };
+  });
+
+  const lexical = measured.filter(item => item.query.group === 'lexical');
+  const paraphrase = measured.filter(item => item.query.group === 'paraphrase');
+  const hardNegative = measured.filter(item => item.query.group === 'hard-negative');
+  const experimentalLexical = experimental.filter(item => item.query.group === 'lexical');
+  const experimentalParaphrase = experimental.filter(item => item.query.group === 'paraphrase');
+  const experimentalHardNegative = experimental.filter(item => item.query.group === 'hard-negative');
+  const output = {
+    dataset: 'synthetic only; hand-authored Traditional Chinese, English and mixed-language questions',
+    mode: nearLimit ? 'near 20 MB Corpus budget' : 'small relevance set',
+    corpus: { files: Object.keys(documents).length, bytes: corpusBytes, configuredSearchLimitBytes: LIMITS.searchBytes },
+    tokenizerExample: { query: '大腦因學習改變連結', terms: tokenizeTerms('大腦因學習改變連結') },
+    quality: {
+      currentSubstringBaseline: { overall: scoreGroup(measured), lexical: scoreGroup(lexical), paraphrase: scoreGroup(paraphrase), hardNegative: scoreGroup(hardNegative) },
+      experimentalSegmentedBm25: { overall: scoreGroup(experimental), lexical: scoreGroup(experimentalLexical), paraphrase: scoreGroup(experimentalParaphrase), hardNegative: scoreGroup(experimentalHardNegative) },
+    },
+    cost: {
+      coldIndexBuildAndQuery: { elapsedMs: indexBuildAndFirstQueryMs, indexedBytes: warmed.indexedBytes,
+        heapUsedDeltaBytes: global.gc ? heapAfterIndex - heapBeforeIndex : null },
+      coldSearchPerQuery: { bytesRead: { p50: quantile(measured.map(item => item.scannedBytes), 0.5), p95: quantile(measured.map(item => item.scannedBytes), 0.95) },
+        latencyMs: { p50: quantile(measured.map(item => item.elapsedMs), 0.5), p95: quantile(measured.map(item => item.elapsedMs), 0.95) } },
+      warmSearchPerQuery: { bytesRead: 0, cacheHitRate: warmMeasured.filter(item => item.cacheHit).length / warmMeasured.length,
+        latencyMs: { p50: quantile(warmMeasured.map(item => item.elapsedMs), 0.5), p95: quantile(warmMeasured.map(item => item.elapsedMs), 0.95) } },
+      returnedExcerptCharsPerQuery: { p50: quantile(measured.map(item => item.excerptChars), 0.5), p95: quantile(measured.map(item => item.excerptChars), 0.95), max: Math.max(...measured.map(item => item.excerptChars)) },
+      experimentalIndex: { buildMs: segmentedIndex.buildMs, serializedTokenBytes: segmentedIndex.indexBytes,
+        queryLatencyMs: { p50: quantile(experimental.map(item => item.elapsedMs), 0.5), p95: quantile(experimental.map(item => item.elapsedMs), 0.95) } },
+    },
+    misses: {
+      current: measured.filter(item => !item.hits.some(hit => item.query.relevant.includes(hit.path))).map(item => item.query.query),
+      experimental: experimental.filter(item => !item.hits.some(hit => item.query.relevant.includes(hit.path))).map(item => item.query.query),
+    },
+    top3Misses: {
+      current: measured.filter(item => !item.hits.slice(0, 3).some(hit => item.query.relevant.includes(hit.path)))
+        .map(item => ({ query: item.query.query, relevant: item.query.relevant, top3: item.hits.slice(0, 3).map(hit => hit.path) })),
+      experimental: experimental.filter(item => !item.hits.slice(0, 3).some(hit => item.query.relevant.includes(hit.path)))
+        .map(item => ({ query: item.query.query, relevant: item.query.relevant, top3: item.hits.slice(0, 3).map(hit => hit.path) })),
+    },
+  };
+  console.log(JSON.stringify(output, null, 2));
+} finally {
+  invalidateCorpusSearchIndex();
+  await rm(root, { recursive: true, force: true });
+}

@@ -1,5 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { search, propose, review, apply, rollback } from './knowledge.mjs';
+import { search, propose, review, apply, inspectTransactionJournal, recoverTransactionJournal, rollbackTransactionJournal } from './knowledge.mjs';
 import { prepareContext, contextDigest, assertContextFresh, suggestionPlan } from './corpus.mjs';
 import { runCodex } from './codex.mjs';
 const [command, ...args] = process.argv.slice(2);
@@ -28,6 +28,8 @@ try {
     console.log(JSON.stringify(review(plan), null, 2));
   } else if (command === 'review') console.log(JSON.stringify(review(await json('plan')), null, 2));
   else if (command === 'apply') console.log(JSON.stringify(await apply(arg('vault'), await json('plan'), arg('review'), arg('transaction')), null, 2));
-  else if (command === 'rollback') console.log(JSON.stringify(await rollback(arg('vault'), await json('transaction')), null, 2));
-  else console.log('Aster offline workflow: context | codex-plan | search | plan | review | apply | rollback. See workflow/README.md.');
+  else if (command === 'inspect') console.log(JSON.stringify(await inspectTransactionJournal(arg('vault'), arg('transaction')), null, 2));
+  else if (command === 'recover') console.log(JSON.stringify(await recoverTransactionJournal(arg('vault'), arg('transaction')), null, 2));
+  else if (command === 'rollback') console.log(JSON.stringify(await rollbackTransactionJournal(arg('vault'), arg('transaction')), null, 2));
+  else console.log('Aster offline workflow: context | codex-plan | search | plan | review | apply | inspect | recover | rollback. See workflow/README.md.');
 } catch (error) { console.error(error.message); process.exitCode = 1; }

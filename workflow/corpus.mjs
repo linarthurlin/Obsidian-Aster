@@ -1,7 +1,7 @@
 import { readdir, lstat, readFile, realpath } from 'node:fs/promises';
-import { resolve, relative, isAbsolute, join } from 'node:path';
+import { resolve, relative, isAbsolute, join, basename } from 'node:path';
 import { safePath, hash, propose, review } from './knowledge.mjs';
-export const LIMITS = { files: 2000, bytes: 200000, targetChars: 32000, excerptChars: 2400, sources: 6 };
+export const LIMITS = { files: 2000, bytes: 200000, searchBytes: 20000000, searchExcerptChars: 420, searchResults: 20, targetChars: 32000, batchTargets: 4, batchTargetChars: 48000, excerptChars: 2400, sources: 6 };
 export function visiblePath(path) {
   return typeof path === 'string' && path.length > 0 && path.length < 1024 && !isAbsolute(path)
     && !/[\\:\u0000-\u001f]/.test(path) && path.split('/').every(part => part && !part.startsWith('.'));
@@ -33,6 +33,132 @@ export async function listNotes(root) {
   }
   await walk(root); return files.sort();
 }
+export function getCorpusBacklinks(folder, targetPath, notePaths, resolvedLinks) {
+  if (!visiblePath(folder) || !visiblePath(targetPath) || !targetPath.endsWith('.md')) throw new Error('Choose a visible Corpus note to inspect backlinks.');
+  if (!Array.isArray(notePaths) || notePaths.length > LIMITS.files) throw new Error('Corpus note listing is invalid or exceeds the file limit.');
+  const prefix = folder + '/';
+  const allowed = new Set(notePaths.filter(path => visiblePath(path) && path.endsWith('.md')).map(path => prefix + path));
+  const target = prefix + targetPath;
+  if (!allowed.has(target)) throw new Error('Backlink target is outside the configured Corpus.');
+  if (!resolvedLinks || typeof resolvedLinks !== 'object') return [];
+  return Object.entries(resolvedLinks)
+    .filter(([source, targets]) => allowed.has(source) && targets && typeof targets === 'object'
+      && Object.hasOwn(targets, target) && Number.isFinite(targets[target]) && targets[target] > 0)
+    .map(([source]) => source.slice(prefix.length))
+    .sort((a, b) => a.localeCompare(b));
+}
+export function getCorpusLinkHealth(folder, notePaths, resolvedLinks, unresolvedLinks) {
+  if (!visiblePath(folder)) throw new Error('Choose a visible Corpus folder to inspect link health.');
+  if (!Array.isArray(notePaths) || notePaths.length > LIMITS.files
+    || notePaths.some(path => !visiblePath(path) || !path.endsWith('.md')))
+    throw new Error('Corpus note listing is invalid or exceeds the file limit.');
+  if (!resolvedLinks || typeof resolvedLinks !== 'object' || !unresolvedLinks || typeof unresolvedLinks !== 'object')
+    throw new Error('Obsidian link metadata is unavailable; no report was produced.');
+  const prefix = folder + '/';
+  const allowed = new Set(notePaths.map(path => prefix + path));
+  const unresolved = [];
+  for (const source of allowed) {
+    const links = unresolvedLinks[source];
+    if (!links || typeof links !== 'object') continue;
+    for (const [target, count] of Object.entries(links)) {
+      if (!target.trim() || !Number.isSafeInteger(count) || count <= 0) continue;
+      unresolved.push({ sourcePath: source.slice(prefix.length), target, count });
+    }
+  }
+  unresolved.sort((a, b) => a.sourcePath.localeCompare(b.sourcePath) || a.target.localeCompare(b.target));
+  const inboundCounts = new Map();
+  for (const source of allowed) {
+    const targets = resolvedLinks[source];
+    if (!targets || typeof targets !== 'object') continue;
+    for (const [target, count] of Object.entries(targets)) {
+      if (!allowed.has(target) || source === target || !Number.isSafeInteger(count) || count <= 0) continue;
+      inboundCounts.set(target, (inboundCounts.get(target) || 0) + count);
+    }
+  }
+  const noInbound = notePaths.filter(path => !inboundCounts.has(prefix + path)).sort((a, b) => a.localeCompare(b));
+  return { unresolved, noInbound };
+}
+export function getCorpusTitleCollisions(folder, notePaths) {
+  if (!visiblePath(folder)) throw new Error('Choose a visible Corpus folder to inspect note titles.');
+  if (!Array.isArray(notePaths) || notePaths.length > LIMITS.files
+    || notePaths.some(path => !visiblePath(path) || !path.endsWith('.md')))
+    throw new Error('Corpus note listing is invalid or exceeds the file limit.');
+  const groups = new Map();
+  for (const path of notePaths) {
+    const title = basename(path, '.md');
+    const key = title.normalize('NFKC').toLowerCase();
+    const group = groups.get(key) || { paths: [] };
+    group.paths.push(path);
+    groups.set(key, group);
+  }
+  const comparePaths = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+  return [...groups.values()]
+    .filter(group => group.paths.length > 1)
+    .map(group => {
+      const paths = group.paths.sort(comparePaths);
+      return { title: basename(paths[0], '.md').normalize('NFKC'), paths };
+    })
+    .sort((a, b) => comparePaths(a.title, b.title));
+}
+export function getCorpusZeroByteNotes(folder, notePaths, fileSizes) {
+  if (!visiblePath(folder)) throw new Error('Choose a visible Corpus folder to inspect empty notes.');
+  if (!Array.isArray(notePaths) || notePaths.length > LIMITS.files
+    || notePaths.some(path => !visiblePath(path) || !path.endsWith('.md')))
+    throw new Error('Corpus note listing is invalid or exceeds the file limit.');
+  if (!fileSizes || typeof fileSizes !== 'object') throw new Error('Corpus file metadata is unavailable; no report was produced.');
+  for (const path of notePaths) {
+    if (!Object.hasOwn(fileSizes, path) || !Number.isSafeInteger(fileSizes[path]) || fileSizes[path] < 0)
+      throw new Error('Corpus file metadata is incomplete or invalid; run the report again.');
+  }
+  return notePaths.filter(path => fileSizes[path] === 0).sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+}
+const MAX_ALIASES_PER_NOTE = 64, MAX_ALIAS_LENGTH = 256, MAX_ALIAS_SCAN_CHARS = 200000;
+export function getCorpusAliasCollisions(folder, notePaths, aliasesByPath) {
+  if (!visiblePath(folder)) throw new Error('Choose a visible Corpus folder to inspect aliases.');
+  if (!Array.isArray(notePaths) || notePaths.length > LIMITS.files
+    || notePaths.some(path => !visiblePath(path) || !path.endsWith('.md')))
+    throw new Error('Corpus note listing is invalid or exceeds the file limit.');
+  if (!aliasesByPath || typeof aliasesByPath !== 'object') throw new Error('Corpus alias metadata is unavailable; no report was produced.');
+
+  const groups = new Map();
+  let totalChars = 0;
+  const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+  const add = (path, value, origin) => {
+    if (typeof value !== 'string' || value.length > MAX_ALIAS_LENGTH && origin === 'frontmatter')
+      throw new Error('Corpus alias metadata contains an invalid or oversized value; no report was produced.');
+    const label = value.normalize('NFKC').trim().replace(/\s+/gu, ' ');
+    if (!label) return;
+    if (/[\u0000-\u001f\u007f]/u.test(label)) throw new Error('Corpus alias metadata contains control characters; no report was produced.');
+    totalChars += label.length;
+    if (totalChars > MAX_ALIAS_SCAN_CHARS) throw new Error('Corpus alias metadata exceeds its scan budget; no report was produced.');
+    const key = label.toLowerCase();
+    const paths = groups.get(key) || new Map();
+    const match = paths.get(path) || { path, filename: false, aliases: new Set() };
+    if (origin === 'filename') match.filename = true;
+    else match.aliases.add(label);
+    paths.set(path, match);
+    groups.set(key, paths);
+  };
+  for (const path of notePaths) {
+    if (!Object.hasOwn(aliasesByPath, path) || !Array.isArray(aliasesByPath[path]) || aliasesByPath[path].length > MAX_ALIASES_PER_NOTE)
+      throw new Error('Corpus alias metadata is incomplete or exceeds the per-note limit; run the report again.');
+    add(path, basename(path, '.md'), 'filename');
+    for (const alias of aliasesByPath[path]) add(path, alias, 'frontmatter');
+  }
+  return [...groups.entries()]
+    .filter(([, paths]) => paths.size > 1 && [...paths.values()].some(match => match.aliases.size > 0))
+    .map(([key, paths]) => {
+      const matches = [...paths.values()].map(match => ({
+        path: match.path,
+        filename: match.filename,
+        aliases: [...match.aliases].sort(compare),
+      })).sort((a, b) => compare(a.path, b.path));
+      const spellings = matches.flatMap(match => [...match.aliases, ...(match.filename ? [basename(match.path, '.md').normalize('NFKC').trim().replace(/\s+/gu, ' ')] : [])]);
+      spellings.sort(compare);
+      return { alias: spellings[0] || key, matches };
+    })
+    .sort((a, b) => compare(a.alias.toLowerCase(), b.alias.toLowerCase()) || compare(a.alias, b.alias));
+}
 async function boundedRead(root, path) {
   const absolute = await safePath(root, path), info = await lstat(absolute);
   if (info.size > LIMITS.bytes) throw new Error('Note exceeds the 200KB limit: ' + path);
@@ -40,16 +166,135 @@ async function boundedRead(root, path) {
   if (bytes.length > LIMITS.bytes) throw new Error('Note grew beyond the limit: ' + path);
   return bytes.toString('utf8');
 }
+async function searchableNotes(root) {
+  const documents = [];
+  let totalBytes = 0;
+  for (const path of await listNotes(root)) {
+    const info = await lstat(await safePath(root, path));
+    if (info.size > LIMITS.bytes) continue;
+    totalBytes += info.size;
+    if (totalBytes > LIMITS.searchBytes) throw new Error('Corpus exceeds the 20MB local search budget; choose a smaller folder.');
+    documents.push({ path, size: info.size, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs });
+  }
+  return documents;
+}
+
+// Aster deliberately keeps at most one ephemeral, explicitly requested Corpus index.
+// It is never persisted and stores text only in this plugin process.
+let corpusSearchCache;
+let corpusSearchBuild;
+let corpusSearchGeneration = 0;
+const SEARCH_INDEX_METADATA_RECHECK_MS = 15_000;
+
+export function invalidateCorpusSearchIndex() {
+  corpusSearchGeneration++;
+  corpusSearchCache = undefined;
+  corpusSearchBuild = undefined;
+}
+
+function metadataFingerprint(documents) {
+  return JSON.stringify(documents.map(({ path, size, mtimeMs, ctimeMs }) => [path, size, mtimeMs, ctimeMs]));
+}
+
+async function buildCorpusSearchIndex(root, documents, fingerprint, generation) {
+  const indexed = [];
+  let indexedBytes = 0;
+  for (const document of documents) {
+    const text = await boundedRead(root, document.path);
+    indexedBytes += Buffer.byteLength(text, 'utf8');
+    if (indexedBytes > LIMITS.searchBytes) throw new Error('Corpus changed beyond the 20MB local search budget; choose a smaller folder.');
+    indexed.push({
+      ...document,
+      text,
+      normalizedText: text.normalize('NFKC').toLowerCase(),
+      normalizedPath: document.path.normalize('NFKC').toLowerCase(),
+    });
+  }
+  if (generation !== corpusSearchGeneration) throw new Error('Corpus changed while the local search index was being built. Run the search again.');
+  const latestDocuments = await searchableNotes(root);
+  if (metadataFingerprint(latestDocuments) !== fingerprint) throw new Error('Corpus changed while the local search index was being built. Run the search again.');
+  return { root, fingerprint, documents: indexed, indexedBytes };
+}
+
+async function getCorpusSearchIndex(root) {
+  const now = Date.now();
+  if (corpusSearchCache?.root === root && now >= corpusSearchCache.checkedAt
+    && now - corpusSearchCache.checkedAt < SEARCH_INDEX_METADATA_RECHECK_MS)
+    return { index: corpusSearchCache, cacheHit: true };
+  const documents = await searchableNotes(root);
+  const fingerprint = metadataFingerprint(documents);
+  if (corpusSearchCache?.root === root && corpusSearchCache.fingerprint === fingerprint) {
+    corpusSearchCache.checkedAt = Date.now();
+    return { index: corpusSearchCache, cacheHit: true };
+  }
+  const generation = corpusSearchGeneration;
+  if (corpusSearchBuild?.root === root && corpusSearchBuild.fingerprint === fingerprint && corpusSearchBuild.generation === generation) {
+    const index = await corpusSearchBuild.promise;
+    return { index, cacheHit: true };
+  }
+  const promise = buildCorpusSearchIndex(root, documents, fingerprint, generation);
+  corpusSearchBuild = { root, fingerprint, generation, promise };
+  try {
+    const index = await promise;
+    if (generation !== corpusSearchGeneration) throw new Error('Corpus changed while the local search index was being built. Run the search again.');
+    index.checkedAt = Date.now();
+    corpusSearchCache = index;
+    return { index, cacheHit: false };
+  } finally {
+    if (corpusSearchBuild?.promise === promise) corpusSearchBuild = undefined;
+  }
+}
+
+export async function searchCorpus(root, query, limit = LIMITS.searchResults) {
+  if (typeof query !== 'string' || !query.trim() || query.length > 500) throw new Error('Enter a search query of 1–500 characters.');
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new Error('Search result limit must be between 1 and 50.');
+  root = await realpath(root);
+  const generation = corpusSearchGeneration;
+  const terms = query.normalize('NFKC').toLowerCase().split(/\s+/).filter(Boolean);
+  const { index, cacheHit } = await getCorpusSearchIndex(root);
+  const hits = [];
+  for (const document of index.documents) {
+    const { text } = document;
+    const score = terms.reduce((sum, term) => sum + (document.normalizedPath.includes(term) ? 5 : 0) + (document.normalizedText.includes(term) ? 2 : 0), 0);
+    if (!score) continue;
+    const originalMatch = terms.map(term => text.toLowerCase().indexOf(term)).filter(index => index >= 0);
+    const at = originalMatch.length ? Math.min(...originalMatch) : 0;
+    const from = Math.max(0, text.lastIndexOf('\n', Math.max(0, at - 180)) + 1);
+    hits.push({
+      path: document.path,
+      score,
+      excerpt: text.slice(from, from + LIMITS.searchExcerptChars),
+      startLine: text.slice(0, from).split('\n').length,
+    });
+  }
+  if (index !== corpusSearchCache || generation !== corpusSearchGeneration)
+    throw new Error('Corpus changed while search results were being prepared. Run the search again.');
+  const ordered = hits.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
+  return { query: query.trim(), scannedFiles: index.documents.length, scannedBytes: cacheHit ? 0 : index.indexedBytes,
+    indexedBytes: index.indexedBytes, cacheHit, truncated: ordered.length > limit, results: ordered.slice(0, limit) };
+}
+export async function readCorpusNote(root, relativePath, maxChars = 24000) {
+  if (!visiblePath(relativePath) || !relativePath.endsWith('.md')) throw new Error('Choose a visible Markdown path inside the configured Corpus.');
+  if (!Number.isInteger(maxChars) || maxChars < 1 || maxChars > 24000) throw new Error('Note read limit must be between 1 and 24000 characters.');
+  root = await realpath(root);
+  if (!(await listNotes(root)).includes(relativePath)) throw new Error('Note is outside the configured Corpus.');
+  const text = await boundedRead(root, relativePath);
+  if (text.length > maxChars) throw new Error(`Note exceeds the ${maxChars}-character read limit; Aster does not truncate note content.`);
+  return { path: relativePath, content: text };
+}
 export async function prepareContext(root, query, targetPath) {
   if (typeof query !== 'string' || !query.trim() || query.length > 1000) throw new Error('Enter a query of 1–1000 characters.');
   if (!visiblePath(targetPath) || !targetPath.endsWith('.md')) throw new Error('Select an existing Markdown target.');
+  const documents = await searchableNotes(root);
   const targetText = await boundedRead(root, targetPath);
   if (targetText.length > LIMITS.targetChars) throw new Error('Target exceeds 32000 characters; choose a smaller note.');
   const terms = query.normalize('NFKC').toLowerCase().split(/\s+/).filter(Boolean), hits = [];
-  for (const path of await listNotes(root)) {
+  let scannedBytes = 0;
+  for (const { path } of documents) {
     if (path === targetPath) continue;
-    const info = await lstat(await safePath(root, path)); if (info.size > LIMITS.bytes) continue;
     const text = await boundedRead(root, path), lower = text.normalize('NFKC').toLowerCase();
+    scannedBytes += Buffer.byteLength(text, 'utf8');
+    if (scannedBytes > LIMITS.searchBytes) throw new Error('Corpus changed beyond the 20MB search budget; choose a smaller folder.');
     const score = terms.reduce((sum, term) => sum + (path.toLowerCase().includes(term) ? 5 : 0) + (lower.includes(term) ? 2 : 0), 0);
     if (!score) continue;
     // Use original text offsets so excerpts remain verifiable, even with Unicode normalization.
@@ -62,9 +307,46 @@ export async function prepareContext(root, query, targetPath) {
   if (!sources.length) throw new Error('No matching source notes in this corpus. Change the query; nothing was sent.');
   return { schema: 1, query: query.trim(), target: { path: targetPath, hash: hash(targetText), text: targetText }, sources };
 }
+export async function prepareBatchContext(root, query, targetPaths) {
+  if (typeof query !== 'string' || !query.trim() || query.length > 1000) throw new Error('Enter a query of 1–1000 characters.');
+  if (!Array.isArray(targetPaths) || targetPaths.length < 2 || targetPaths.length > LIMITS.batchTargets
+    || targetPaths.some(path => !visiblePath(path) || !path.endsWith('.md')) || new Set(targetPaths).size !== targetPaths.length)
+    throw new Error(`Select 2–${LIMITS.batchTargets} distinct Markdown targets in the configured Corpus.`);
+  root = await realpath(root);
+  const documents = await searchableNotes(root);
+  const available = new Set(documents.map(document => document.path));
+  const targetSet = new Set(targetPaths);
+  const targets = [];
+  let targetChars = 0;
+  for (const path of targetPaths) {
+    if (!available.has(path)) throw new Error('Target is outside the searchable Corpus or exceeds the note size limit: ' + path);
+    const text = await boundedRead(root, path);
+    targetChars += text.length;
+    if (targetChars > LIMITS.batchTargetChars) throw new Error('Selected targets exceed the 48000-character combined context limit. Choose fewer or smaller notes.');
+    targets.push({ path, hash: hash(text), text });
+  }
+  const terms = query.normalize('NFKC').toLowerCase().split(/\s+/).filter(Boolean), hits = [];
+  let scannedBytes = 0;
+  for (const { path } of documents) {
+    if (targetSet.has(path)) continue;
+    const text = await boundedRead(root, path), lower = text.normalize('NFKC').toLowerCase();
+    scannedBytes += Buffer.byteLength(text, 'utf8');
+    if (scannedBytes > LIMITS.searchBytes) throw new Error('Corpus changed beyond the 20MB search budget; choose a smaller folder.');
+    const score = terms.reduce((sum, term) => sum + (path.normalize('NFKC').toLowerCase().includes(term) ? 5 : 0) + (lower.includes(term) ? 2 : 0), 0);
+    if (!score) continue;
+    const at = Math.max(0, text.toLowerCase().indexOf(terms.find(term => text.toLowerCase().includes(term)) || terms[0]));
+    const from = Math.max(0, text.lastIndexOf('\n', Math.max(0, at - 240)) + 1);
+    hits.push({ path, hash: hash(text), excerpt: text.slice(from, from + LIMITS.excerptChars),
+      startLine: text.slice(0, from).split('\n').length, score });
+  }
+  const sources = hits.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).slice(0, LIMITS.sources);
+  if (!sources.length) throw new Error('No matching source notes in this corpus. Change the query; nothing was sent.');
+  return { schema: 2, query: query.trim(), targets, sources };
+}
 export function contextDigest(context) { return hash(JSON.stringify(context)); }
 export async function assertContextFresh(root, context) {
-  if (hash(await boundedRead(root, context.target.path)) !== context.target.hash) throw new Error('Target changed. Prepare a new context.');
+  const targets = Array.isArray(context.targets) ? context.targets : [context.target];
+  for (const target of targets) if (hash(await boundedRead(root, target.path)) !== target.hash) throw new Error('Target changed. Prepare a new context: ' + target.path);
   for (const source of context.sources) if (hash(await boundedRead(root, source.path)) !== source.hash) throw new Error('Source changed. Prepare a new context: ' + source.path);
 }
 export function validateSuggestion(context, output) {
@@ -88,5 +370,49 @@ export async function suggestionPlan(root, context, output) {
   const plan = await propose(root, [{ path: context.target.path, after: output.after, reason: output.reason,
     sources: output.sources.map(source => ({ ...source, locator: 'Approved excerpt beginning at line ' + context.sources.find(item => item.path === source.path).startLine })) }]);
   if (plan.operations[0].beforeHash !== context.target.hash || plan.operations[0].sources.some(source => source.hash !== context.sources.find(item => item.path === source.path).hash)) throw new Error('Context changed during proposal creation.');
+  return { plan, review: review(plan) };
+}
+export function validateBatchSuggestion(context, output) {
+  if (!context || context.schema !== 2 || !Array.isArray(context.targets) || context.targets.length < 2
+    || context.targets.length > LIMITS.batchTargets || !Array.isArray(context.sources)
+    || !output || !['proposal', 'no_change'].includes(output.status) || typeof output.reason !== 'string' || !output.reason.trim()
+    || output.reason.length > 4000 || !Array.isArray(output.operations) || output.operations.length > context.targets.length)
+    throw new Error('Invalid multi-note proposal.');
+  const targets = new Map(context.targets.map(target => [target.path, target]));
+  const seen = new Set();
+  if (output.status === 'no_change') {
+    if (output.operations.length) throw new Error('A no-change result cannot contain operations.');
+    return output;
+  }
+  if (!output.operations.length) throw new Error('A multi-note update needs at least one reviewed change.');
+  for (const operation of output.operations) {
+    const target = targets.get(operation?.path);
+    if (!target || seen.has(operation.path)) throw new Error('Proposal contains an unselected or duplicate target.');
+    seen.add(operation.path);
+    if (typeof operation.reason !== 'string' || !operation.reason.trim() || operation.reason.length > 4000
+      || typeof operation.after !== 'string' || operation.after.length > LIMITS.targetChars || !operation.after.trim()
+      || operation.after === target.text || !Array.isArray(operation.sources) || !operation.sources.length || operation.sources.length > LIMITS.sources)
+      throw new Error('Invalid change for selected target: ' + operation.path);
+    for (const source of operation.sources) {
+      const allowed = context.sources.find(item => item.path === source?.path);
+      if (!allowed || typeof source.excerpt !== 'string' || !source.excerpt.trim() || !allowed.excerpt.includes(source.excerpt))
+        throw new Error('Model cited evidence outside the approved excerpts.');
+    }
+  }
+  return output;
+}
+export async function batchSuggestionPlan(root, context, output) {
+  validateBatchSuggestion(context, output);
+  await assertContextFresh(root, context);
+  if (output.status === 'no_change') return null;
+  const operations = output.operations.map(operation => ({ path: operation.path, after: operation.after, reason: operation.reason,
+    sources: operation.sources.map(source => ({ ...source, locator: 'Approved excerpt beginning at line ' + context.sources.find(item => item.path === source.path).startLine })) }));
+  const plan = await propose(root, operations);
+  for (const operation of plan.operations) {
+    const target = context.targets.find(item => item.path === operation.path);
+    if (!target || operation.beforeHash !== target.hash) throw new Error('Context changed during proposal creation: ' + operation.path);
+    for (const source of operation.sources) if (source.hash !== context.sources.find(item => item.path === source.path)?.hash)
+      throw new Error('Context changed during proposal creation: ' + source.path);
+  }
   return { plan, review: review(plan) };
 }

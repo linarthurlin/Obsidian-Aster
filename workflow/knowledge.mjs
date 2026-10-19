@@ -1,5 +1,5 @@
 // Offline proposal/review engine. No model, network calls, automatic classification or background writes.
-import { readFile, writeFile, lstat, realpath, rename, unlink, mkdir, stat, open } from 'node:fs/promises';
+import { readFile, writeFile, lstat, realpath, rename, unlink, mkdir, stat, open, readdir } from 'node:fs/promises';
 import { resolve, relative, isAbsolute, join, dirname, basename, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 export const hash = text => createHash('sha256').update(text).digest('hex');
@@ -23,7 +23,6 @@ export async function safePath(rootPath, path, mustExist = true) {
   return absolute;
 }
 export async function search(root, query, limit = 10) {
-  const { readdir } = await import('node:fs/promises');
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
   const hits = [];
   async function walk(dir) {
@@ -112,48 +111,262 @@ async function preflight(root, plan, rollback = false) {
   return paths;
 }
 async function atomicWrite(path, text) {
-  const temp = join(dirname(path), `.personal-glass-${randomUUID()}.tmp`);
+  const temp = join(dirname(path), `.aster-transaction-${randomUUID()}.tmp`);
   const mode = (await stat(path)).mode;
   try { await writeFile(temp, text, { flag: 'wx', mode }); await rename(temp, path); }
   finally { try { await unlink(temp); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
+}
+const journalLocks = new Map();
+function isOutside(root, path) {
+  const rel = relative(root, path);
+  return rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel);
+}
+async function withJournalLock(path, action) {
+  const previous = journalLocks.get(path) || Promise.resolve();
+  let release;
+  const current = new Promise(resolveLock => { release = resolveLock; });
+  journalLocks.set(path, current);
+  await previous;
+  try { return await action(); }
+  finally {
+    release();
+    if (journalLocks.get(path) === current) journalLocks.delete(path);
+  }
+}
+async function replaceJournal(path, transaction) {
+  const temp = join(dirname(path), '.aster-transaction-' + randomUUID() + '.tmp');
+  let handle;
+  try {
+    handle = await open(temp, 'wx', 0o600);
+    await handle.writeFile(JSON.stringify(transaction, null, 2));
+    await handle.sync();
+    await handle.close();
+    handle = undefined;
+    const info = await lstat(path);
+    if (info.isSymbolicLink() || !info.isFile()) throw new Error('Transaction journal must remain a regular file');
+    await rename(temp, path);
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+    await unlink(temp).catch(() => {});
+  }
+}
+async function resolveJournal(rootPath, journalPath) {
+  const root = await realpath(rootPath);
+  let path = resolve(journalPath);
+  if (!isOutside(root, path)) throw new Error('Transaction history must be outside the vault');
+  path = join(await realpath(dirname(path)), basename(path));
+  if (!isOutside(root, path)) throw new Error('Transaction history must resolve outside the vault');
+  const info = await lstat(path);
+  if (info.isSymbolicLink() || !info.isFile()) throw new Error('Transaction journal must be a regular file');
+  if (info.size > 250_000_000) throw new Error('Transaction journal exceeds the safe read limit');
+  let transaction;
+  try { transaction = JSON.parse(await readFile(path, 'utf8')); }
+  catch { throw new Error('Transaction journal is unreadable or malformed'); }
+  if (!transaction || !['pending', 'applied', 'recovery-required', 'recovering', 'rolled-back', 'aborted'].includes(transaction.status)
+    || transaction.root !== root || typeof transaction.digest !== 'string' || !transaction.plan
+    || review(transaction.plan).digest !== transaction.digest)
+    throw new Error('Transaction journal does not match this vault or its plan');
+  if (transaction.recovery !== undefined) {
+    const recovery = transaction.recovery;
+    const paths = new Set(transaction.plan.operations.map(op => op.path));
+    if (!recovery || typeof recovery !== 'object' || recovery.action !== 'rollback'
+      || !Array.isArray(recovery.restored) || recovery.restored.length > transaction.plan.operations.length
+      || recovery.restored.some(path => typeof path !== 'string' || !paths.has(path))
+      || (recovery.conflicts !== undefined && (!Array.isArray(recovery.conflicts)
+        || recovery.conflicts.some(path => typeof path !== 'string' || !paths.has(path)))))
+      throw new Error('Transaction journal recovery metadata is invalid');
+  }
+  return { root, path, transaction };
+}
+async function inspectTargets(root, plan) {
+  const targets = [];
+  for (const op of plan.operations) {
+    let absolute;
+    try { absolute = await safePath(root, op.path, false); }
+    catch (error) {
+      if (error?.code === 'ENOENT') { targets.push({ path: op.path, state: 'missing' }); continue; }
+      throw error;
+    }
+    try {
+      const info = await lstat(absolute);
+      if (info.isSymbolicLink() || !info.isFile()) { targets.push({ path: op.path, state: 'conflict' }); continue; }
+      const currentHash = hash(await readFile(absolute, 'utf8'));
+      targets.push({ path: op.path, state: currentHash === op.beforeHash ? 'before' : currentHash === op.afterHash ? 'after' : 'conflict' });
+    } catch (error) {
+      if (error?.code === 'ENOENT') targets.push({ path: op.path, state: 'missing' });
+      else throw error;
+    }
+  }
+  return targets;
+}
+export async function inspectTransactionJournal(root, journalPath) {
+  const journal = await resolveJournal(root, journalPath);
+  const savedRecovery = journal.transaction.recovery;
+  return {
+    status: journal.transaction.status,
+    digest: journal.transaction.digest,
+    planId: journal.transaction.plan.id,
+    createdAt: journal.transaction.plan.createdAt,
+    targets: await inspectTargets(journal.root, journal.transaction.plan),
+    recovery: savedRecovery && {
+      action: savedRecovery.action,
+      startedAt: savedRecovery.startedAt,
+      updatedAt: savedRecovery.updatedAt,
+      completedAt: savedRecovery.completedAt,
+      restoredCount: Array.isArray(savedRecovery.restored) ? savedRecovery.restored.length : 0,
+      conflicts: Array.isArray(savedRecovery.conflicts) ? savedRecovery.conflicts : [],
+    },
+  };
+}
+export async function listTransactionJournals(rootPath, journalDirectory, limit = 50) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('Transaction history limit must be between 1 and 100');
+  const root = await realpath(rootPath);
+  let directory = resolve(journalDirectory);
+  if (!isOutside(root, directory)) throw new Error('Transaction history must be outside the vault');
+  try { directory = await realpath(directory); }
+  catch (error) { if (error?.code === 'ENOENT') return { items: [], skipped: 0 }; throw error; }
+  if (!isOutside(root, directory)) throw new Error('Transaction history must resolve outside the vault');
+  const directoryInfo = await lstat(directory);
+  if (directoryInfo.isSymbolicLink() || !directoryInfo.isDirectory()) throw new Error('Transaction history path must be a plain local directory');
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.private.json')) continue;
+    const path = join(directory, entry.name);
+    try {
+      const info = await lstat(path);
+      if (info.isSymbolicLink() || !info.isFile()) continue;
+      files.push({ path, modifiedAt: info.mtimeMs });
+    } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+  }
+  files.sort((a, b) => b.modifiedAt - a.modifiedAt || a.path.localeCompare(b.path));
+  let skipped = Math.max(0, files.length - 500);
+  const items = [];
+  for (const file of files.slice(0, 500)) {
+    try {
+      const journal = await resolveJournal(root, file.path);
+      items.push({
+        path: journal.path,
+        status: journal.transaction.status,
+        planId: journal.transaction.plan.id,
+        createdAt: journal.transaction.plan.createdAt,
+        targetPaths: journal.transaction.plan.operations.map(op => op.path),
+      });
+    } catch { skipped++; }
+  }
+  items.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)) || a.path.localeCompare(b.path));
+  return { items: items.slice(0, limit), skipped: skipped + Math.max(0, items.length - limit) };
+}
+export async function readTransactionReview(root, journalPath) {
+  const journal = await resolveJournal(root, journalPath);
+  return {
+    status: journal.transaction.status,
+    digest: journal.transaction.digest,
+    planId: journal.transaction.plan.id,
+    createdAt: journal.transaction.plan.createdAt,
+    changes: review(journal.transaction.plan).changes,
+    targets: await inspectTargets(journal.root, journal.transaction.plan),
+  };
+}
+async function restoreJournal(root, journalPath, allowedStatuses) {
+  const initial = await resolveJournal(root, journalPath);
+  return withJournalLock(initial.path, async () => {
+    const journal = await resolveJournal(initial.root, initial.path);
+    const transaction = journal.transaction;
+    if (!allowedStatuses.includes(transaction.status)) throw new Error('Transaction journal is not in a recoverable state');
+    const states = await inspectTargets(journal.root, transaction.plan);
+    const conflicts = states.filter(target => target.state === 'conflict' || target.state === 'missing').map(target => target.path);
+    if (conflicts.length) throw new Error('Recovery stopped before writing because targets are missing or contain later edits: ' + conflicts.join(', '));
+
+    const startedAt = transaction.recovery?.startedAt || new Date().toISOString();
+    const next = {
+      ...transaction,
+      status: 'recovering',
+      recovery: { action: 'rollback', startedAt, updatedAt: new Date().toISOString(), restored: transaction.recovery?.restored || [] },
+    };
+    await replaceJournal(journal.path, next);
+    let restored = 0;
+    let alreadyBefore = 0;
+    try {
+      for (let index = 0; index < transaction.plan.operations.length; index++) {
+        const op = transaction.plan.operations[index];
+        if (states[index].state === 'before') { alreadyBefore++; continue; }
+        const absolute = await safePath(journal.root, op.path);
+        if (hash(await readFile(absolute, 'utf8')) !== op.afterHash) throw new Error('Concurrent edit during recovery: ' + op.path);
+        await atomicWrite(absolute, op.before);
+        restored++;
+        next.recovery = {
+          ...next.recovery,
+          updatedAt: new Date().toISOString(),
+          restored: [...next.recovery.restored, op.path],
+        };
+        await replaceJournal(journal.path, next);
+      }
+      const finalStates = await inspectTargets(journal.root, transaction.plan);
+      const unfinished = finalStates.filter(target => target.state !== 'before').map(target => target.path);
+      if (unfinished.length) throw new Error('Recovery did not restore every target to its reviewed before-state: ' + unfinished.join(', '));
+      next.status = 'rolled-back';
+      next.recovery = { ...next.recovery, completedAt: new Date().toISOString() };
+      await replaceJournal(journal.path, next);
+      return { status: 'rolled-back', restored, alreadyBefore };
+    } catch (error) {
+      try {
+        const afterFailure = await inspectTargets(journal.root, transaction.plan);
+        const changed = afterFailure.filter(target => target.state === 'conflict' || target.state === 'missing').map(target => target.path);
+        if (changed.length) next.status = 'recovery-required';
+        next.recovery = { ...next.recovery, updatedAt: new Date().toISOString(), conflicts: changed };
+        await replaceJournal(journal.path, next);
+      } catch { /* Keep the last valid journal state; recovery can be inspected and retried. */ }
+      throw error;
+    }
+  });
+}
+export async function recoverTransactionJournal(root, journalPath) {
+  return restoreJournal(root, journalPath, ['pending', 'recovery-required', 'recovering']);
+}
+export async function rollbackTransactionJournal(root, journalPath) {
+  return restoreJournal(root, journalPath, ['applied', 'recovering']);
 }
 export async function apply(root, plan, digest, transactionPath) {
   if (review(plan).digest !== digest) throw new Error('Review digest does not match this exact plan');
   root = await realpath(root);
   // Keep transaction history outside the vault; never overwrite notes with a receipt.
   let receipt = resolve(transactionPath);
-  const rel = relative(root, receipt);
-  const outside = path => path === '..' || path.startsWith('..' + sep) || isAbsolute(path);
-  if (!outside(rel)) throw new Error('Transaction history must be outside the vault');
+  if (!isOutside(root, receipt)) throw new Error('Transaction history must be outside the vault');
   await mkdir(dirname(receipt), { recursive: true });
   receipt = join(await realpath(dirname(receipt)), basename(receipt));
-  const resolvedRel = relative(root, receipt);
-  if (!outside(resolvedRel)) throw new Error('Transaction history must resolve outside the vault');
-  const log = await open(receipt, 'wx');
+  if (!isOutside(root, receipt)) throw new Error('Transaction history must resolve outside the vault');
+  let log = await open(receipt, 'wx', 0o600);
   const changed = [];
   try {
     const paths = await preflight(root, plan);
     // Write a recovery journal before the first mutation, then mark successful completion.
     await log.writeFile(JSON.stringify({ status: 'pending', root, digest, plan }, null, 2));
     await log.sync();
+    await log.close();
+    log = undefined;
     for (let index = 0; index < plan.operations.length; index++) {
       const op = plan.operations[index];
       if (hash(await readFile(await safePath(root, op.path), 'utf8')) !== op.beforeHash) throw new Error(`Concurrent edit: ${op.path}`);
       await atomicWrite(paths[index], op.after); changed.push(index);
     }
-    await log.truncate(0); await log.write(JSON.stringify({ status: 'applied', root, digest, plan }, null, 2), 0, 'utf8'); await log.sync();
+    await replaceJournal(receipt, { status: 'applied', root, digest, plan });
     return { status: 'applied', updated: changed.length };
   } catch (error) {
+    if (log) { await log.close().catch(() => {}); log = undefined; }
     // Do not overwrite an external edit made after our own write.
     const conflicts = [];
     for (const index of changed.reverse()) {
       const op = plan.operations[index];
-      const path = await safePath(root, op.path);
-      if (hash(await readFile(path, 'utf8')) === op.afterHash) await atomicWrite(path, op.before); else conflicts.push(op.path);
+      try {
+        const path = await safePath(root, op.path);
+        if (hash(await readFile(path, 'utf8')) === op.afterHash) await atomicWrite(path, op.before); else conflicts.push(op.path);
+      } catch { conflicts.push(op.path); }
     }
-    await log.truncate(0); await log.write(JSON.stringify({ status: conflicts.length ? 'recovery-required' : 'aborted', root, digest, plan, conflicts }, null, 2), 0, 'utf8'); await log.sync();
+    try { await replaceJournal(receipt, { status: conflicts.length ? 'recovery-required' : 'aborted', root, digest, plan, conflicts }); }
+    catch { /* The pending journal remains available for explicit recovery. */ }
     throw error;
-  } finally { await log.close(); }
+  } finally { if (log) await log.close().catch(() => {}); }
 }
 export async function rollback(root, transaction) {
   const actualRoot = await realpath(root);
