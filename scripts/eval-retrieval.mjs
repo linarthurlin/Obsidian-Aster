@@ -79,6 +79,9 @@ const canonicalNotes = {
   'Research/Citation formats.md': '# Citation formats\n\nCitation formats differ. A source citation should identify the evidence location and preserve an exact excerpt.\n',
   'Research/Meeting.md': '# Meeting decisions\n\nDecisions assign an owner and deadline to each follow-up. 會議決策記錄負責人與截止日期。\n',
   'Archive/Meeting.md': '# Archived meeting\n\nHistorical decisions list an owner; the deadline was removed from this archived record.\n',
+  'Research/Meeting template.md': '# Meeting template\n\nA meeting template captures an owner and deadline for follow-up, but it is not a record of decisions.\n',
+  'Reference/Citation examples.md': '# Citation examples\n\nCitation format examples demonstrate source path and quote styles, not the provenance history of a claim.\n',
+  'Archive/Memory glossary.md': '# Memory glossary\n\nMemory retrieval, memory consolidation, and sleep are distinct topics in this index; definitions are intentionally omitted.\n',
 };
 
 const queries = [
@@ -102,6 +105,16 @@ const queries = [
   { group: 'paraphrase', query: 'neurons talk to each other', relevant: ['Research/Neural circuits.md'] },
   { group: 'lexical', query: 'neural circuits coordinate signals', relevant: ['Research/Neural circuits.md'] },
   { group: 'paraphrase', query: 'how does the brain learn a new skill', relevant: ['Research/大腦學習.md', 'Research/神經可塑性.md'] },
+  { group: 'hard-negative', query: 'current meeting decisions owner deadline', relevant: ['Research/Meeting.md'] },
+  { group: 'hard-negative', query: 'meeting template owner deadline', relevant: ['Research/Meeting template.md'] },
+  { group: 'hard-negative', query: 'historical meeting owner deadline removed', relevant: ['Archive/Meeting.md'] },
+  { group: 'hard-negative', query: 'exact citation source path excerpt provenance', relevant: ['Research/Source provenance.md'] },
+  { group: 'hard-negative', query: 'citation format examples source quote style', relevant: ['Research/Citation formats.md'] },
+  { group: 'hard-negative', query: 'citation examples source path quote style', relevant: ['Reference/Citation examples.md'] },
+  { group: 'hard-negative', query: 'memory consolidation definition after learning', relevant: ['Research/Memory consolidation.md'] },
+  { group: 'hard-negative', query: 'memory retrieval spaced practice effect', relevant: ['Research/Memory retrieval.md'] },
+  { group: 'hard-negative', query: 'memory glossary retrieval consolidation sleep', relevant: ['Archive/Memory glossary.md'] },
+  { group: 'hard-negative', query: 'neuron electrical signal synaptic synchronization', relevant: ['Research/Neural circuits.md'] },
 ];
 
 function quantile(values, proportion) {
@@ -122,6 +135,7 @@ function scoreGroup(records) {
     for (let index = 0; index < Math.min(5, relevant.size); index++) idealGain += 1 / Math.log2(index + 2);
   }
   const count = records.length;
+  if (!count) return { queries: 0, precisionAt3: 0, recallAt3: 0, mrrAt5: 0, nDcgAt5: 0 };
   return {
     queries: count,
     precisionAt3: precisionAt3 / count,
@@ -190,6 +204,9 @@ try {
     const result = await searchCorpus(root, query.query, 5);
     const elapsedMs = performance.now() - started;
     if (!result.cacheHit || result.scannedBytes !== 0) throw new Error('Warm Corpus search unexpectedly rebuilt or reread the local index.');
+    const coldResult = measured.find(item => item.query.query === query.query);
+    if (JSON.stringify(result.results) !== JSON.stringify(coldResult?.hits))
+      throw new Error(`Warm cached results differ from cold search for: ${query.query}`);
     warmMeasured.push({ query, hits: result.results, elapsedMs, scannedBytes: result.scannedBytes, indexedBytes: result.indexedBytes, cacheHit: result.cacheHit });
   }
 
@@ -202,16 +219,18 @@ try {
 
   const lexical = measured.filter(item => item.query.group === 'lexical');
   const paraphrase = measured.filter(item => item.query.group === 'paraphrase');
+  const hardNegative = measured.filter(item => item.query.group === 'hard-negative');
   const experimentalLexical = experimental.filter(item => item.query.group === 'lexical');
   const experimentalParaphrase = experimental.filter(item => item.query.group === 'paraphrase');
+  const experimentalHardNegative = experimental.filter(item => item.query.group === 'hard-negative');
   const output = {
     dataset: 'synthetic only; hand-authored Traditional Chinese, English and mixed-language questions',
     mode: nearLimit ? 'near 20 MB Corpus budget' : 'small relevance set',
     corpus: { files: Object.keys(documents).length, bytes: corpusBytes, configuredSearchLimitBytes: LIMITS.searchBytes },
     tokenizerExample: { query: '大腦因學習改變連結', terms: terms('大腦因學習改變連結') },
     quality: {
-      currentSubstringBaseline: { overall: scoreGroup(measured), lexical: scoreGroup(lexical), paraphrase: scoreGroup(paraphrase) },
-      experimentalSegmentedBm25: { overall: scoreGroup(experimental), lexical: scoreGroup(experimentalLexical), paraphrase: scoreGroup(experimentalParaphrase) },
+      currentSubstringBaseline: { overall: scoreGroup(measured), lexical: scoreGroup(lexical), paraphrase: scoreGroup(paraphrase), hardNegative: scoreGroup(hardNegative) },
+      experimentalSegmentedBm25: { overall: scoreGroup(experimental), lexical: scoreGroup(experimentalLexical), paraphrase: scoreGroup(experimentalParaphrase), hardNegative: scoreGroup(experimentalHardNegative) },
     },
     cost: {
       coldIndexBuildAndQuery: { elapsedMs: indexBuildAndFirstQueryMs, indexedBytes: warmed.indexedBytes,
@@ -227,6 +246,12 @@ try {
     misses: {
       current: measured.filter(item => !item.hits.some(hit => item.query.relevant.includes(hit.path))).map(item => item.query.query),
       experimental: experimental.filter(item => !item.hits.some(hit => item.query.relevant.includes(hit.path))).map(item => item.query.query),
+    },
+    top3Misses: {
+      current: measured.filter(item => !item.hits.slice(0, 3).some(hit => item.query.relevant.includes(hit.path)))
+        .map(item => ({ query: item.query.query, relevant: item.query.relevant, top3: item.hits.slice(0, 3).map(hit => hit.path) })),
+      experimental: experimental.filter(item => !item.hits.slice(0, 3).some(hit => item.query.relevant.includes(hit.path)))
+        .map(item => ({ query: item.query.query, relevant: item.query.relevant, top3: item.hits.slice(0, 3).map(hit => hit.path) })),
     },
   };
   console.log(JSON.stringify(output, null, 2));
