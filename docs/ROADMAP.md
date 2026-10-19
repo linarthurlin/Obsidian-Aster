@@ -42,7 +42,9 @@
 - [x] Codex App Server dynamic tools live smoke：CLI 0.162.1、ephemeral thread、合成 Corpus 摘錄，真實 model-to-tool-call-to-result loop 完成；未讀取 Vault。
 - [x] 合成檢索評估與按需快取：自動測試有 12 個 lexical 和 3 個 paraphrase 合成案例；手動 eval runner 有 17 個 lexical、3 個 paraphrase、10 個 hard-negative 判斷，包含摘錄定位與冷／暖快取效能。
 - [x] 建立與 development query 字串／Corpus 路徑分離的 held-out synthetic 集：20 篇筆記、36 題（8 lexical、13 paraphrase、15 hard-negative），以固定 qrels 對照 substring 與研究型 BM25，不從該集調參。
-- [ ] 在真實 Obsidian Windows runtime 驗證 cache event、實際記憶體與搜尋行為；現有 synthetic benchmark 不代表個人 Vault 品質。
+- [x] Disposable runtime Corpus cache/search：12 篇合成筆記、929 KB indexed bytes；cold search 建索引，warm search 回報 0 KB note text reread。新建 10 篇筆記使既有 cache 重建並包含新檔，`Vault.modify` 後舊 marker 0 筆、新 marker 命中。
+- [x] Renderer heap sample（CDP `HeapProfiler.collectGarbage` + `Performance.getMetrics`）：929 KB Corpus index 前後 JS heap 13,807,784 → 15,743,396 bytes（+1,935,612）；warm reuse 後 15,743,436（+40）。這是整個 Obsidian renderer 的合成樣本，不是 Aster 單獨 heap 歸因。
+- [ ] 真實 runtime 的 2,000-note／20 MB limit 與較大 Corpus heap 邊界；合成資料不代表個人 Vault 的檢索品質。
 - [x] 跨重啟 transaction history UI 與 pending journal recovery CLI；synthetic plugin reload 與 hash-conflict gate 已測試。
 - [ ] Halo Theme、Orbit、default theme 與無障礙整合。
 驗證原則：每項新能力都要先在合成 Vault 驗證；unit／DOM tests 不代表 runtime 完成。
