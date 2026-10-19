@@ -12,6 +12,7 @@ it('requires explicit scope loading, context preview and consent; changing query
   await writeFile(join(home,'Selected/Note.md'),'# Filtering\nHuman text.\n');
   await writeFile(join(home,'Selected/Source.md'),'Bayesian prior combines with observations.');
   await writeFile(join(home,'Selected/Zotero.md'),'---\ntitle: Synthetic memory study\ncitekey: smith2025memory\nauthor: A. Smith\nyear: 2025\n---\n# Findings\n\n> Memory consolidation strengthens a recently learned trace.\n> [p. 12](zotero://open-pdf/library/items/SYNTHETIC1?page=12&annotation=SYNTHETIC2)\n');
+  await writeFile(join(home,'Selected/Paper.pdf'),'synthetic fake PDF bytes');
   await writeFile(join(home,'Selected/Empty.md'),'');
   await mkdir(join(home,'Selected/Research'),{recursive:true});await mkdir(join(home,'Selected/Archive'),{recursive:true});
   await writeFile(join(home,'Selected/Research/Meeting.md'),'Synthetic duplicate title fixture.');
@@ -28,8 +29,9 @@ it('requires explicit scope loading, context preview and consent; changing query
   const syntheticAliases:Record<string,string|string[]>={'Selected/Note.md':['Synthesis'],'Selected/Source.md':'synthesis'};
   const app={vault:{adapter:{getBasePath:()=>home},getAbstractFileByPath:(path:string)=>new TFile(path,path.endsWith('/Empty.md')?0:24),
     read:async(file:any)=>{vaultBodyReads++;return await readFile(join(home,file.path),'utf8')},
+    readBinary:async(file:any)=>{const bytes=await readFile(join(home,file.path));return bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)},
     cachedRead:async()=>{vaultBodyReads++;throw new Error('Corpus metadata report must not read note bodies')}},workspace:{detachLeavesOfType:()=>{},onLayoutReady:()=>{}},metadataCache:{
-    getFileCache:(file:any)=>({frontmatter:file.path==='Selected/Zotero.md'?{title:'Synthetic memory study',citekey:'smith2025memory',author:'A. Smith',year:2025}:Object.hasOwn(syntheticAliases,file.path)?{aliases:syntheticAliases[file.path]}:{}}),
+    getFileCache:(file:any)=>({frontmatter:file.path==='Selected/Zotero.md'?{title:'Synthetic memory study',citekey:'smith2025memory',author:'A. Smith',year:2025}:file.path==='Selected/Paper.pdf'?{title:'Synthetic PDF research',citekey:'doe2026synthetic',author:'A. Doe',year:2026}:Object.hasOwn(syntheticAliases,file.path)?{aliases:syntheticAliases[file.path]}:{}}),
     resolvedLinks:{'Selected/Note.md':{'Selected/Source.md':1}},
     unresolvedLinks:{'Selected/Source.md':{'Missing synthetic target':1}},
   }};
@@ -41,6 +43,7 @@ it('requires explicit scope loading, context preview and consent; changing query
   const module={exports:{}};
   runInNewContext(await readFile('dist/plugin/main.js','utf8'),{module,exports:module.exports,process,Buffer,URL,AbortController,setTimeout,clearTimeout,
     require:(name:string)=>name==='obsidian'?{Plugin,ItemView,PluginSettingTab:class{},Setting:class{},FuzzySuggestModal,TFile,TFolder,
+      loadPdfJs:async()=>({getDocument:()=>({promise:Promise.resolve({numPages:2,getPageLabels:async()=>['i','12'],getPage:async(pageNumber:number)=>({getTextContent:async()=>({items:[{str:pageNumber===1?'Page one must stay out of the selected evidence.':'Selected page two contains a synthetic finding.'}]})})}),destroy:async()=>{}})}),
       parseFrontMatterAliases:(frontmatter:any)=>typeof frontmatter?.aliases==='string'?[frontmatter.aliases]:Array.isArray(frontmatter?.aliases)?frontmatter.aliases.filter((alias:any)=>typeof alias==='string'):null}:name==='node:child_process'?{spawn:()=>{spawned++;throw new Error('NETWORK_NOT_ALLOWED')}}:name==='node:os'?{...require('node:os'),homedir:()=>home}:require(name)});
   const Agent=(module.exports as any).default,plugin=new Agent();await plugin.onload();const view=factories.get('knowledge-agent-workbench')({});await view.onOpen();
   const button=(text:string)=>Array.from(doc.querySelectorAll('button')).find(b=>b.textContent!.includes(text))!;
@@ -71,6 +74,17 @@ it('requires explicit scope loading, context preview and consent; changing query
   expect(researchPreview.textContent).toContain('smith2025memory');expect(researchPreview.textContent).toContain('Zotero p. 12');
   expect(researchPreview.textContent).toContain('S1-E1');expect(button('Prepare Chat draft').disabled).toBe(false);expect(spawned).toBe(0);
   await writeFile(join(home,'Selected/Zotero.md'),'---\ntitle: Changed after preview\n---\nThis source was changed by a synthetic test after preview.');
+  await invoke(button('Prepare Chat draft'));expect(doc.querySelector('.pga-research .pga-status')?.textContent).toContain('changed after preview');expect(spawned).toBe(0);
+  await invoke(button('Load scoped notes'));
+  const pdfSources=doc.querySelector('[aria-label="Research Desk source notes"]') as HTMLSelectElement;
+  Array.from(pdfSources.options).find(option=>option.value==='Paper.pdf')!.selected=true;pdfSources.dispatchEvent(new dom.window.Event('change'));
+  const pdfRange=doc.querySelector('[aria-label="PDF page range: Paper.pdf"]') as HTMLInputElement;pdfRange.value='2';pdfRange.dispatchEvent(new dom.window.Event('input'));
+  const pdfQuestion=doc.querySelector('[aria-label="Research question"]') as HTMLInputElement;pdfQuestion.value='What does the selected PDF say?';pdfQuestion.dispatchEvent(new dom.window.Event('input'));
+  await invoke(button('Preview selected evidence'));
+  expect(doc.querySelector('[aria-label="Research source preview"]')?.textContent).toContain('PDF p. 12 (page 2)');
+  expect(doc.querySelector('[aria-label="Research source preview"]')?.textContent).toContain('Selected page two contains a synthetic finding.');
+  expect(doc.querySelector('[aria-label="Research source preview"]')?.textContent).not.toContain('Page one must stay out');
+  await writeFile(join(home,'Selected/Paper.pdf'),'changed synthetic fake PDF');
   await invoke(button('Prepare Chat draft'));expect(doc.querySelector('.pga-research .pga-status')?.textContent).toContain('changed after preview');expect(spawned).toBe(0);
   await invoke(button('Load scoped notes'));const target=doc.querySelector('select[aria-label="Target notes, select one or more"]')!;target.value='Note.md';target.dispatchEvent(new dom.window.Event('change'));
   const query=doc.querySelector('input[type=text]') as HTMLInputElement;query.value='Bayesian';query.dispatchEvent(new dom.window.Event('input'));

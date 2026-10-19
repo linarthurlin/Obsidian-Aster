@@ -59,6 +59,10 @@
 .pga-workbench .pga-research { margin-block:18px; padding:14px; border:1px solid var(--background-modifier-border); border-radius:var(--pga-radius); background:var(--background-secondary); }
 .pga-workbench .pga-research > summary { cursor:pointer; font-weight:600; }
 .pga-workbench .pga-research > input, .pga-workbench .pga-research > select { display:block; width:100%; max-width:760px; margin-block:12px; }
+.pga-workbench .pga-research-pdf-ranges { display:grid; gap:8px; margin-block:12px; }
+.pga-workbench .pga-research-pdf-ranges > p { margin:0; color:var(--text-muted); }
+.pga-workbench .pga-research-pdf-range { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.pga-workbench .pga-research-pdf-range input { width:min(100%, 280px); }
 .pga-workbench .pga-research-preview pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:520px; overflow:auto; }
 .pga-chat .pga-chat-context-actions, .pga-chat .pga-chat-composer-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .pga-chat .pga-chat-skill-section { padding: 8px 10px; border: 1px solid var(--background-modifier-border); border-radius: var(--pga-chat-radius); background: var(--pga-chat-subtle); }

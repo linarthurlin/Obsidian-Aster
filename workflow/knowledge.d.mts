@@ -1,4 +1,5 @@
 import type {Plan} from './corpus.mjs';
+export function hash(value: string | Uint8Array): string;
 export function safePath(rootPath:string,path:string,mustExist?:boolean):Promise<string>;
 export function apply(root:string,plan:Plan,digest:string,transactionPath:string):Promise<{status:string;updated:number}>;
 export function review(plan:Plan):{digest:string;changes:Array<{path:string;reason:string;diff:string;sources:Array<{path:string;hash:string;excerpt:string;locator:string}>;related:unknown[]}>};
