@@ -5,10 +5,11 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { listNotes, searchCorpus } from '../workflow/corpus.mjs';
+import { LIMITS, listNotes, searchCorpus } from '../workflow/corpus.mjs';
 
 const segmenter = new Intl.Segmenter('zh-TW', { granularity: 'word' });
 const stopWords = new Set('a an and are as at be does for from how in is it of on or the this through to with why'.split(' '));
+const nearLimit = process.argv.includes('--near-limit');
 
 function terms(text) {
   return [...segmenter.segment(text.normalize('NFKC').toLowerCase())]
@@ -28,7 +29,7 @@ async function buildSegmentedBm25Index(root) {
   const indexed = [];
   for (const path of await listNotes(root)) {
     const body = await readFile(join(root, path), 'utf8');
-    indexed.push({ path, body, title: path.split('/').pop().replace(/\.md$/i, ''), bodyTerms: terms(body), titleTerms: terms(path) });
+    indexed.push({ path, title: path.split('/').pop().replace(/\.md$/i, ''), bodyTerms: terms(body), titleTerms: terms(path) });
   }
   const averageBodyLength = indexed.reduce((sum, doc) => sum + doc.bodyTerms.length, 0) / indexed.length;
   const averageTitleLength = indexed.reduce((sum, doc) => sum + doc.titleTerms.length, 0) / indexed.length;
@@ -136,8 +137,17 @@ const root = await mkdtemp(join(parent, randomUUID() + '-'));
 try {
   const documents = { ...canonicalNotes };
   const filler = 'Synthetic archive material about unrelated backups, catalog maintenance, and local operational history. ';
-  for (let index = 1; index <= 300; index++) {
-    documents[`Scale/Archive-${String(index).padStart(4, '0')}.md`] = `# Archive record ${index}\n\n${filler.repeat(16)}\n`;
+  const fillerRepeat = nearLimit ? 100 : 16;
+  const fillerLimit = nearLimit ? 19_000_000 : Number.POSITIVE_INFINITY;
+  let corpusBytes = Object.values(documents).reduce((sum, text) => sum + Buffer.byteLength(text), 0);
+  const fillerCountLimit = LIMITS.files - Object.keys(documents).length;
+  for (let index = 1; index <= fillerCountLimit; index++) {
+    if (!nearLimit && index > 300) break;
+    const content = `# Archive record ${index}\n\n${filler.repeat(fillerRepeat)}\n`;
+    const contentBytes = Buffer.byteLength(content);
+    if (corpusBytes + contentBytes > fillerLimit) break;
+    documents[`Scale/Archive-${String(index).padStart(4, '0')}.md`] = content;
+    corpusBytes += contentBytes;
   }
   for (const [path, content] of Object.entries(documents)) {
     const target = join(root, path);
@@ -145,8 +155,11 @@ try {
     await writeFile(target, content);
   }
 
+  const casesToRun = nearLimit
+    ? ['記憶在睡眠期間穩定', 'AI knowledge workflow citations', 'brain rewiring'].map(value => queries.find(query => query.query === value))
+    : queries;
   const measured = [];
-  for (const query of queries) {
+  for (const query of casesToRun) {
     const started = performance.now();
     const result = await searchCorpus(root, query.query, 5);
     const elapsedMs = performance.now() - started;
@@ -163,7 +176,7 @@ try {
   }
 
   const segmentedIndex = await buildSegmentedBm25Index(root);
-  const experimental = queries.map(query => {
+  const experimental = casesToRun.map(query => {
     const started = performance.now();
     const hits = searchSegmentedBm25(segmentedIndex, query.query);
     return { query, hits, elapsedMs: performance.now() - started };
@@ -175,7 +188,8 @@ try {
   const experimentalParaphrase = experimental.filter(item => item.query.group === 'paraphrase');
   const output = {
     dataset: 'synthetic only; hand-authored Traditional Chinese, English and mixed-language questions',
-    corpus: { files: Object.keys(documents).length, bytes: Object.values(documents).reduce((sum, text) => sum + Buffer.byteLength(text), 0) },
+    mode: nearLimit ? 'near 20 MB Corpus budget' : 'small relevance set',
+    corpus: { files: Object.keys(documents).length, bytes: corpusBytes, configuredSearchLimitBytes: LIMITS.searchBytes },
     tokenizerExample: { query: '大腦因學習改變連結', terms: terms('大腦因學習改變連結') },
     quality: {
       currentSubstringBaseline: { overall: scoreGroup(measured), lexical: scoreGroup(lexical), paraphrase: scoreGroup(paraphrase) },
