@@ -49,6 +49,7 @@
 - [x] Renderer heap sample（CDP `HeapProfiler.collectGarbage` + `Performance.getMetrics`）：929 KB Corpus index 前後 JS heap 13,807,784 → 15,743,396 bytes（+1,935,612）；warm reuse 後 15,743,436（+40）。這是整個 Obsidian renderer 的合成樣本，不是 Aster 單獨 heap 歸因。
 - [x] 真實 runtime 的 Corpus hard cap：2,000 篇、精確 20,000,000 bytes 可冷建索引並暖重用；19,532 KB indexed bytes，暖搜尋重讀 0 KB。多 1 byte 明確回報 20 MB 預算超限，第 2,001 篇明確回報檔案數超限。冷建索引後整個 renderer `JSHeapUsedSize` 增加 40,719,724 bytes；暖搜尋後再增 13,096 bytes。這包含 Obsidian/UI，不代表 Aster-only 記憶體，也不衡量個人 Vault 的檢索品質。
 - [x] 跨重啟 transaction history UI 與 pending journal recovery CLI；synthetic plugin reload 與 hash-conflict gate 已測試。
+- [x] Disposable Windows runtime transaction rollback UI（2026-10-18；Obsidian 1.14.4 / Aster 0.2.1）：兩篇合成筆記與 applied journal 只存在隔離 Vault/profile。History 顯示精確 diff；未勾選明確同意時 rollback 停用，勾選後回復 1 個檔案；磁碟內容回到 before-state、journal 變成 `rolled-back`，重新載入 history 後不再提供 recovery action。無 model turn，未開啟個人 Vault。
 - [ ] Halo Theme、Orbit、default theme 與無障礙整合。
 驗證原則：每項新能力都要先在合成 Vault 驗證；unit／DOM tests 不代表 runtime 完成。
 
