@@ -24,4 +24,4 @@ Context meter 只使用 Codex 回報的 `last.totalTokens`（目前有效 contex
 
 每個 session 最多 80 則訊息、單則最多 40,000 字元、單份紀錄最多 120 KB，最多 24 個 session。超出限制時顯示錯誤，不自動丟棄或縮減對話內容。
 
-仍未完成：工具活動、經核准的 Obsidian 操作工具、Knowledge Studio、Research Desk、Vault Curator、真實 Obsidian Windows runtime 驗證，以及 slash recipe 自訂。Corpus 搜尋、新分頁導覽與 Corpus 範圍內 backlinks 已有合成 UI 測試，但不代表真實 Obsidian runtime 已驗證；Projects、Skills、Quick Ask、Corpus note/folder picker 和 Clear race 亦同。完整進度以 [roadmap](ROADMAP.md) 為準。
+仍未完成：需要逐次核准的一般 Obsidian 操作工具、Knowledge Studio、Research Desk、Vault Curator、真實 Obsidian Windows runtime 驗證，以及 slash recipe 自訂。唯讀 Corpus 搜尋／單篇讀取與狀態列工具活動已有合成協定／UI 測試，並以 Codex CLI 0.162.1 ephemeral thread 做過 live smoke，但仍需在 disposable Obsidian Windows runtime 驗證；Projects、Skills、Quick Ask、Corpus note/folder picker 和 Clear race 亦未做真實 Obsidian 驗證。完整進度以 [roadmap](ROADMAP.md) 為準。

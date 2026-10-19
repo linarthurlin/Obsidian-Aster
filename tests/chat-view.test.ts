@@ -97,6 +97,9 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
   let view: any, plugin: any, chatId = '', historyPath = '';
   let blockedRenameTarget = '';
   let signalRenameStarted!: () => void, releaseBlockedRename!: () => void;
+  let releaseCorpus: (() => void) | undefined;
+  let restoreCorpus: (() => void) | undefined;
+  let pendingPreflightClear: Promise<unknown> | undefined;
   const renameStarted = new Promise<void>(resolve => { signalRenameStarted = resolve; });
   const renameGate = new Promise<void>(resolve => { releaseBlockedRename = resolve; });
   const proto = dom.window.HTMLElement.prototype as any;
@@ -363,6 +366,43 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     await expect(readFile(historyPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     expect(fake.children.filter(child => child.args[0] === 'app-server')).toHaveLength(appServerCount);
 
+    const newChatButton = Array.from(doc.querySelectorAll('button')).find(button => button.textContent?.includes('New chat')) as HTMLButtonElement;
+    await newChatButton.onclick?.(new dom.window.Event('click'));
+    const preflightChat = plugin.settings.chats[0];
+    preflightChat.corpusToolsEnabled = true;
+    await plugin.saveSettings();
+    let announceCorpus!: () => void;
+    const corpusStarted = new Promise<void>(resolve => { announceCorpus = resolve; });
+    const corpusGate = new Promise<void>(resolve => { releaseCorpus = resolve; });
+    const originalCorpus = plugin.corpus.bind(plugin);
+    restoreCorpus = () => { plugin.corpus = originalCorpus; };
+    plugin.corpus = async () => { announceCorpus(); await corpusGate; return originalCorpus(); };
+    const preflightHistoryPath = join(testHome, '.aster', 'chats', preflightChat.id + '.json');
+    let preflightDeleteStarted = false;
+    const deleteHistoriesBeforePreflight = view.deleteHistories.bind(view);
+    view.deleteHistories = async (chats: any[]) => {
+      preflightDeleteStarted = true;
+      return deleteHistoriesBeforePreflight(chats);
+    };
+    const preflightInput = doc.querySelector('[aria-label="Message Aster"]') as HTMLTextAreaElement;
+    preflightInput.value = 'This send is still checking its Corpus scope.';
+    (Array.from(doc.querySelectorAll('button')).find(button => button.textContent === 'Send') as HTMLButtonElement).onclick?.(new dom.window.Event('click'));
+    await corpusStarted;
+    const preflightClearButton = Array.from(doc.querySelectorAll('button')).find(button => button.textContent === 'Clear chats') as HTMLButtonElement;
+    const preflightClearTask = preflightClearButton.onclick?.(new dom.window.Event('click'));
+    pendingPreflightClear = preflightClearTask;
+    await Promise.resolve();
+    expect(view.clearingChats).toBe(true);
+    expect(preflightDeleteStarted).toBe(false);
+    releaseCorpus();
+    await preflightClearTask;
+    expect(preflightDeleteStarted).toBe(true);
+    expect(plugin.settings.chats).toHaveLength(0);
+    await expect(readFile(preflightHistoryPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(fake.children.filter(child => child.args[0] === 'app-server')).toHaveLength(appServerCount);
+    restoreCorpus();
+    restoreCorpus = undefined;
+
     activeMarkdownView = {
       editor: { getSelection: () => 'A selected passage for a visible, reviewable Quick Ask draft.' },
       file: { path: 'Research/Source.md' },
@@ -479,6 +519,9 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     expect(fake.children.filter(child => child.args[0] === 'app-server')).toHaveLength(appServerCount);
   } finally {
     releaseBlockedRename?.();
+    releaseCorpus?.();
+    await pendingPreflightClear?.catch(() => {});
+    restoreCorpus?.();
     await view?.onClose().catch(() => {});
     dom.window.close();
     const cleanupId = chatId || plugin?.settings?.chats?.[0]?.id;

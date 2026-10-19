@@ -878,6 +878,7 @@ export class ChatView extends ItemView {
           this.setChatStatus(threadId, error instanceof Error ? error.message : 'Choose a valid Corpus folder before using Chat tools.');
           return;
         }
+        if (this.clearingChats) return;
       }
       const history = this.histories.get(currentThread.id) || [];
       if (history.length >= 80) {
