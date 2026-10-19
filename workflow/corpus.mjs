@@ -112,6 +112,53 @@ export function getCorpusZeroByteNotes(folder, notePaths, fileSizes) {
   }
   return notePaths.filter(path => fileSizes[path] === 0).sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
 }
+const MAX_ALIASES_PER_NOTE = 64, MAX_ALIAS_LENGTH = 256, MAX_ALIAS_SCAN_CHARS = 200000;
+export function getCorpusAliasCollisions(folder, notePaths, aliasesByPath) {
+  if (!visiblePath(folder)) throw new Error('Choose a visible Corpus folder to inspect aliases.');
+  if (!Array.isArray(notePaths) || notePaths.length > LIMITS.files
+    || notePaths.some(path => !visiblePath(path) || !path.endsWith('.md')))
+    throw new Error('Corpus note listing is invalid or exceeds the file limit.');
+  if (!aliasesByPath || typeof aliasesByPath !== 'object') throw new Error('Corpus alias metadata is unavailable; no report was produced.');
+
+  const groups = new Map();
+  let totalChars = 0;
+  const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+  const add = (path, value, origin) => {
+    if (typeof value !== 'string' || value.length > MAX_ALIAS_LENGTH && origin === 'frontmatter')
+      throw new Error('Corpus alias metadata contains an invalid or oversized value; no report was produced.');
+    const label = value.normalize('NFKC').trim().replace(/\s+/gu, ' ');
+    if (!label) return;
+    if (/[\u0000-\u001f\u007f]/u.test(label)) throw new Error('Corpus alias metadata contains control characters; no report was produced.');
+    totalChars += label.length;
+    if (totalChars > MAX_ALIAS_SCAN_CHARS) throw new Error('Corpus alias metadata exceeds its scan budget; no report was produced.');
+    const key = label.toLowerCase();
+    const paths = groups.get(key) || new Map();
+    const match = paths.get(path) || { path, filename: false, aliases: new Set() };
+    if (origin === 'filename') match.filename = true;
+    else match.aliases.add(label);
+    paths.set(path, match);
+    groups.set(key, paths);
+  };
+  for (const path of notePaths) {
+    if (!Object.hasOwn(aliasesByPath, path) || !Array.isArray(aliasesByPath[path]) || aliasesByPath[path].length > MAX_ALIASES_PER_NOTE)
+      throw new Error('Corpus alias metadata is incomplete or exceeds the per-note limit; run the report again.');
+    add(path, basename(path, '.md'), 'filename');
+    for (const alias of aliasesByPath[path]) add(path, alias, 'frontmatter');
+  }
+  return [...groups.entries()]
+    .filter(([, paths]) => paths.size > 1 && [...paths.values()].some(match => match.aliases.size > 0))
+    .map(([key, paths]) => {
+      const matches = [...paths.values()].map(match => ({
+        path: match.path,
+        filename: match.filename,
+        aliases: [...match.aliases].sort(compare),
+      })).sort((a, b) => compare(a.path, b.path));
+      const spellings = matches.flatMap(match => [...match.aliases, ...(match.filename ? [basename(match.path, '.md').normalize('NFKC').trim().replace(/\s+/gu, ' ')] : [])]);
+      spellings.sort(compare);
+      return { alias: spellings[0] || key, matches };
+    })
+    .sort((a, b) => compare(a.alias.toLowerCase(), b.alias.toLowerCase()) || compare(a.alias, b.alias));
+}
 async function boundedRead(root, path) {
   const absolute = await safePath(root, path), info = await lstat(absolute);
   if (info.size > LIMITS.bytes) throw new Error('Note exceeds the 200KB limit: ' + path);

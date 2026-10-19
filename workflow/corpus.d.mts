@@ -3,6 +3,7 @@ export interface BatchContext { schema: 2; query: string; targets: Array<{path:s
 export interface CorpusSearchResult { path:string; score:number; excerpt:string; startLine:number; }
 export interface CorpusLinkHealth { unresolved:Array<{sourcePath:string;target:string;count:number}>; noInbound:string[]; }
 export interface CorpusTitleCollision { title:string; paths:string[]; }
+export interface CorpusAliasCollision { alias:string; matches:Array<{path:string;filename:boolean;aliases:string[]}>; }
 export const LIMITS: { files:number; bytes:number; searchBytes:number; searchExcerptChars:number; searchResults:number; targetChars:number; batchTargets:number; batchTargetChars:number; excerptChars:number; sources:number };
 export interface Suggestion { status: 'proposal'|'no_change'; reason: string; after: string; sources: Array<{path:string;excerpt:string}>; }
 export interface BatchSuggestion { status: 'proposal'|'no_change'; reason: string; operations: Array<{path:string;reason:string;after:string;sources:Array<{path:string;excerpt:string}>}>; }
@@ -15,6 +16,7 @@ export function getCorpusBacklinks(folder:string,targetPath:string,notePaths:str
 export function getCorpusLinkHealth(folder:string,notePaths:string[],resolvedLinks:Record<string,Record<string,number>>,unresolvedLinks:Record<string,Record<string,number>>):CorpusLinkHealth;
 export function getCorpusTitleCollisions(folder:string,notePaths:string[]):CorpusTitleCollision[];
 export function getCorpusZeroByteNotes(folder:string,notePaths:string[],fileSizes:Record<string,number>):string[];
+export function getCorpusAliasCollisions(folder:string,notePaths:string[],aliasesByPath:Record<string,string[]>):CorpusAliasCollision[];
 export function invalidateCorpusSearchIndex():void;
 export function searchCorpus(root:string,query:string,limit?:number):Promise<{query:string;scannedFiles:number;scannedBytes:number;indexedBytes:number;cacheHit:boolean;truncated:boolean;results:CorpusSearchResult[]}>;
 export function prepareContext(root:string,query:string,target:string):Promise<Context>;

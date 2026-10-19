@@ -1,4 +1,4 @@
-import { FuzzySuggestModal, Plugin, ItemView, PluginSettingTab, Setting, MarkdownView, Notice, TFile, TFolder, type App, type WorkspaceLeaf } from 'obsidian';
+import { FuzzySuggestModal, Plugin, ItemView, PluginSettingTab, Setting, MarkdownView, Notice, TFile, TFolder, parseFrontMatterAliases, type App, type WorkspaceLeaf } from 'obsidian';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -6,7 +6,7 @@ import { mkdir } from 'node:fs/promises';
 import { normalizeSettings, type Settings } from './settings';
 import { registerCorpusSearchInvalidation } from './corpus-search-lifecycle';
 import { ChatView, ASTER_CHAT_VIEW } from './chat-view';
-import { listNotes, visiblePath, resolveScope, prepareContext, prepareBatchContext, contextDigest, assertContextFresh, suggestionPlan, batchSuggestionPlan, getCorpusLinkHealth, getCorpusTitleCollisions, getCorpusZeroByteNotes, invalidateCorpusSearchIndex, type Context, type Reviewed } from '../workflow/corpus.mjs';
+import { listNotes, visiblePath, resolveScope, prepareContext, prepareBatchContext, contextDigest, assertContextFresh, suggestionPlan, batchSuggestionPlan, getCorpusLinkHealth, getCorpusTitleCollisions, getCorpusZeroByteNotes, getCorpusAliasCollisions, invalidateCorpusSearchIndex, type Context, type Reviewed } from '../workflow/corpus.mjs';
 import { runCodex, runBatchCodex } from '../workflow/codex.mjs';
 import { apply, listTransactionJournals, readTransactionReview, recoverTransactionJournal, rollbackTransactionJournal, review as reviewPlan } from '../workflow/knowledge.mjs';
 import { renderProposalReviewCard, type ProposalReviewCard } from './proposal-review';
@@ -55,7 +55,7 @@ class Workbench extends ItemView {
     const historyButton = historyActions.createEl('button', { text: 'Transaction history / 交易紀錄' });
     const historyArea = root.createDiv({ cls: 'pga-results pga-transaction-history' });
     const curatorActions = root.createDiv({ cls: 'pga-actions' });
-    const curatorButton = curatorActions.createEl('button', { text: 'Run Corpus link health / 檢查 Corpus 連結' });
+    const curatorButton = curatorActions.createEl('button', { text: 'Run Corpus metadata review / 檢查 Corpus 中繼資料' });
     const curatorArea = root.createDiv({ cls: 'pga-results pga-curator' });
     type WorkbenchContext = Context | Awaited<ReturnType<typeof prepareBatchContext>>;
     let corpus = '', context: WorkbenchContext | undefined, reviewed: Reviewed | null = null;
@@ -167,18 +167,45 @@ class Workbench extends ItemView {
         const health = getCorpusLinkHealth(selectedFolder, notePaths, this.app.metadataCache.resolvedLinks, this.app.metadataCache.unresolvedLinks);
         const titleCollisions = getCorpusTitleCollisions(selectedFolder, notePaths);
         const fileSizes: Record<string, number> = {};
+        const aliasesByPath: Record<string, string[]> = {};
         for (const path of notePaths) {
           const vaultPath = selectedFolder + '/' + path;
           const file = this.app.vault.getAbstractFileByPath(vaultPath);
           if (!(file instanceof TFile) || file.path !== vaultPath) throw new Error('Corpus changed during metadata inspection. Run the report again.');
           fileSizes[path] = file.stat.size;
+          const cached = this.app.metadataCache.getFileCache(file);
+          if (!cached) throw new Error('Corpus alias metadata is not ready for every note. Run the report again.');
+          aliasesByPath[path] = parseFrontMatterAliases(cached.frontmatter) || [];
         }
         const zeroByteNotes = getCorpusZeroByteNotes(selectedFolder, notePaths, fileSizes);
+        const aliasCollisions = getCorpusAliasCollisions(selectedFolder, notePaths, aliasesByPath);
         if (await this.plugin.corpus() !== selectedCorpus || this.plugin.settings.corpusFolder !== selectedFolder) throw new Error('Corpus changed while the link report was being prepared. Run it again.');
         if (this.closed) return;
-        curatorArea.createEl('h3', { text: 'Corpus link health · metadata only' });
-        curatorArea.createEl('p', { text: 'This on-demand report reads the configured Corpus path list, Obsidian’s link index, and file-size metadata only. It does not read note bodies, call Codex, or change files.' });
-        curatorArea.createEl('p', { text: `${health.unresolved.length} unresolved link target(s); ${health.noInbound.length} note(s) without an inbound link from this Corpus; ${titleCollisions.length} repeated-title group(s); ${zeroByteNotes.length} zero-byte note(s).` });
+        curatorArea.createEl('h3', { text: 'Corpus metadata review · read-only' });
+        curatorArea.createEl('p', { text: 'This on-demand report reads the configured Corpus path list, Obsidian’s link index and cached frontmatter aliases, and file-size metadata only. It does not read note bodies, call Codex, or change files.' });
+        curatorArea.createEl('p', { text: `${health.unresolved.length} unresolved link target(s); ${health.noInbound.length} note(s) without an inbound link from this Corpus; ${titleCollisions.length} repeated-title group(s); ${zeroByteNotes.length} zero-byte note(s); ${aliasCollisions.length} alias collision group(s).` });
+        if (aliasCollisions.length) {
+          const details = curatorArea.createEl('details');
+          details.createEl('summary', { text: `Alias collision candidates · ${aliasCollisions.length} groups` });
+          details.createEl('p', { text: 'This check compares Obsidian-cached frontmatter aliases with Corpus note filenames, using case-insensitive NFKC and collapsed whitespace. Repeated aliases can be intentional; review each match before changing properties or links.' });
+          for (const finding of aliasCollisions.slice(0, 100)) {
+            const entry = details.createDiv({ cls: 'pga-curator-finding' });
+            entry.createEl('strong', { text: finding.alias });
+            for (const match of finding.matches) {
+              const row = entry.createDiv({ cls: 'pga-curator-finding' });
+              const evidence = [match.filename ? 'filename' : '', ...match.aliases.map(alias => `alias: ${alias}`)].filter(Boolean).join(' · ');
+              row.createEl('span', { text: `${match.path} · ${evidence}` });
+              const open = row.createEl('button', { text: 'Open note' });
+              open.onclick = async () => {
+                open.disabled = true;
+                try { await openCorpusNote(match.path, selectedFolder, selectedCorpus); }
+                catch (error) { if (!this.closed) row.createEl('p', { text: error instanceof Error ? error.message : 'Could not open the note.' }); }
+                finally { if (!this.closed) open.disabled = false; }
+              };
+            }
+          }
+          if (aliasCollisions.length > 100) details.createEl('p', { text: `Showing 100 of ${aliasCollisions.length} alias collision groups.` });
+        } else curatorArea.createEl('p', { text: 'No repeated frontmatter aliases or alias-to-filename collisions were found inside this Corpus.' });
         if (zeroByteNotes.length) {
           const details = curatorArea.createEl('details');
           details.createEl('summary', { text: `Zero-byte Markdown notes · ${zeroByteNotes.length} review candidates` });

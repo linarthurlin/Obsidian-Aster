@@ -24,9 +24,11 @@ it('requires explicit scope loading, context preview and consent; changing query
     if(options.value!==undefined)(el as any).value=options.value;for(const [key,value]of Object.entries(options.attr||{}))el.setAttribute(key,String(value));this.appendChild(el);return el};
   proto.createDiv=function(options:any){return this.createEl('div',options)};proto.createSpan=function(options:any){return this.createEl('span',options)};
   let vaultBodyReads=0;
+  const syntheticAliases:Record<string,string|string[]>={'Selected/Note.md':['Synthesis'],'Selected/Source.md':'synthesis'};
   const app={vault:{adapter:{getBasePath:()=>home},getAbstractFileByPath:(path:string)=>new TFile(path,path.endsWith('/Empty.md')?0:24),
     read:async()=>{vaultBodyReads++;throw new Error('Corpus metadata report must not read note bodies')},
     cachedRead:async()=>{vaultBodyReads++;throw new Error('Corpus metadata report must not read note bodies')}},workspace:{detachLeavesOfType:()=>{},onLayoutReady:()=>{}},metadataCache:{
+    getFileCache:(file:any)=>({frontmatter:Object.hasOwn(syntheticAliases,file.path)?{aliases:syntheticAliases[file.path]}:{}}),
     resolvedLinks:{'Selected/Note.md':{'Selected/Source.md':1}},
     unresolvedLinks:{'Selected/Source.md':{'Missing synthetic target':1}},
   }};
@@ -37,11 +39,12 @@ it('requires explicit scope loading, context preview and consent; changing query
   class ItemView {app=app;contentEl=doc.createElement('div');constructor(){doc.querySelector('main')!.appendChild(this.contentEl)}registerDomEvent(el:any,event:string,fn:any){el.addEventListener(event,fn)}}
   const module={exports:{}};
   runInNewContext(await readFile('dist/plugin/main.js','utf8'),{module,exports:module.exports,process,Buffer,AbortController,setTimeout,clearTimeout,
-    require:(name:string)=>name==='obsidian'?{Plugin,ItemView,PluginSettingTab:class{},Setting:class{},FuzzySuggestModal,TFile,TFolder}:name==='node:child_process'?{spawn:()=>{spawned++;throw new Error('NETWORK_NOT_ALLOWED')}}:name==='node:os'?{...require('node:os'),homedir:()=>home}:require(name)});
+    require:(name:string)=>name==='obsidian'?{Plugin,ItemView,PluginSettingTab:class{},Setting:class{},FuzzySuggestModal,TFile,TFolder,
+      parseFrontMatterAliases:(frontmatter:any)=>typeof frontmatter?.aliases==='string'?[frontmatter.aliases]:Array.isArray(frontmatter?.aliases)?frontmatter.aliases.filter((alias:any)=>typeof alias==='string'):null}:name==='node:child_process'?{spawn:()=>{spawned++;throw new Error('NETWORK_NOT_ALLOWED')}}:name==='node:os'?{...require('node:os'),homedir:()=>home}:require(name)});
   const Agent=(module.exports as any).default,plugin=new Agent();await plugin.onload();const view=factories.get('knowledge-agent-workbench')({});await view.onOpen();
   const button=(text:string)=>Array.from(doc.querySelectorAll('button')).find(b=>b.textContent!.includes(text))!;
   const invoke=async(el:any)=>{await el.onclick?.(new dom.window.Event('click'))};
-  await invoke(button('Run Corpus link health'));
+  await invoke(button('Run Corpus metadata review'));
   expect(doc.body.textContent).toContain('Missing synthetic target');
   expect(doc.body.textContent).toContain('metadata only');
   expect(doc.body.textContent).toContain('does not read note bodies');
@@ -50,6 +53,10 @@ it('requires explicit scope loading, context preview and consent; changing query
   expect(doc.body.textContent).toContain('Archive/Meeting.md');
   expect(doc.body.textContent).toContain('Zero-byte Markdown notes');
   expect(doc.body.textContent).toContain('Empty.md');
+  expect(doc.body.textContent).toContain('Alias collision candidates');
+  expect(doc.body.textContent).toContain('Synthesis');
+  expect(doc.body.textContent).toContain('Note.md · alias: Synthesis');
+  expect(doc.body.textContent).toContain('Source.md · alias: synthesis');
   expect(vaultBodyReads).toBe(0);
   expect(spawned).toBe(0);
   expect(doc.querySelector('pre')).toBeNull();expect(spawned).toBe(0);

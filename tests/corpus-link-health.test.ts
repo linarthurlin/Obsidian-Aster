@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { getCorpusLinkHealth, getCorpusTitleCollisions, getCorpusZeroByteNotes } from '../workflow/corpus.mjs';
+import { getCorpusAliasCollisions, getCorpusLinkHealth, getCorpusTitleCollisions, getCorpusZeroByteNotes } from '../workflow/corpus.mjs';
 
 it('reports only unresolved and no-inbound links whose source and target are inside the selected Corpus', () => {
   const report = getCorpusLinkHealth('ResearchScope', ['Target.md', 'Linker.md', 'Independent.md', 'Self.md'], {
@@ -51,4 +51,48 @@ it('reports only zero-byte notes using complete, valid metadata for the selected
   expect(() => getCorpusZeroByteNotes('../Outside', ['Note.md'], { 'Note.md': 0 })).toThrow('visible Corpus folder');
   expect(() => getCorpusZeroByteNotes('ResearchScope', ['Note.md'], {})).toThrow('metadata is incomplete');
   expect(() => getCorpusZeroByteNotes('ResearchScope', ['Note.md'], { 'Note.md': -1 })).toThrow('metadata is incomplete');
+});
+
+it('reports only cross-note alias and filename collisions with bounded normalized evidence', () => {
+  expect(getCorpusAliasCollisions('ResearchScope', [
+    'Notes/Guide.md', 'Archive/SYNTHESIS.md', 'Research/Other.md', 'Archive/Other.md',
+  ], {
+    'Notes/Guide.md': [' Synthesis ', 'Guide', 'GUIDE'],
+    'Archive/SYNTHESIS.md': [],
+    'Research/Other.md': ['guide', ' guide '],
+    'Archive/Other.md': [],
+    'Outside/Other.md': ['Synthesis'],
+  })).toEqual([
+    { alias: 'GUIDE', matches: [
+      { path: 'Notes/Guide.md', filename: true, aliases: ['GUIDE', 'Guide'] },
+      { path: 'Research/Other.md', filename: false, aliases: ['guide'] },
+    ] },
+    { alias: 'SYNTHESIS', matches: [
+      { path: 'Archive/SYNTHESIS.md', filename: true, aliases: [] },
+      { path: 'Notes/Guide.md', filename: false, aliases: ['Synthesis'] },
+    ] },
+  ]);
+});
+
+it('normalizes Unicode compatibility and whitespace but ignores filename-only title groups', () => {
+  expect(getCorpusAliasCollisions('ResearchScope', ['Ａｓｔｅｒ.md', 'Archive/Aster.md', 'Uses.md'], {
+    'Ａｓｔｅｒ.md': [], 'Archive/Aster.md': [], 'Uses.md': ['  aster  '],
+  })).toEqual([{ alias: 'Aster', matches: [
+    { path: 'Archive/Aster.md', filename: true, aliases: [] },
+    { path: 'Uses.md', filename: false, aliases: ['aster'] },
+    { path: 'Ａｓｔｅｒ.md', filename: true, aliases: [] },
+  ] }]);
+});
+
+it('fails closed for incomplete, malformed or over-budget alias metadata', () => {
+  expect(() => getCorpusAliasCollisions('ResearchScope', ['Note.md'], {})).toThrow('metadata is incomplete');
+  expect(() => getCorpusAliasCollisions('ResearchScope', ['Note.md'], { 'Note.md': 'alias' as never })).toThrow('metadata is incomplete');
+  expect(() => getCorpusAliasCollisions('ResearchScope', ['Note.md'], { 'Note.md': ['x'.repeat(257)] })).toThrow('oversized value');
+  expect(() => getCorpusAliasCollisions('ResearchScope', ['Note.md'], { 'Note.md': Array(65).fill('alias') })).toThrow('per-note limit');
+  const manyAliases = Object.fromEntries(Array.from({ length: 13 }, (_, index) => [
+    `Note${index}.md`, Array(64).fill('x'.repeat(256)),
+  ]));
+  expect(() => getCorpusAliasCollisions('ResearchScope', Object.keys(manyAliases), manyAliases)).toThrow('scan budget');
+  expect(() => getCorpusAliasCollisions('ResearchScope', ['Note.md'], { 'Note.md': ['bad\u0001alias'] })).toThrow('control characters');
+  expect(() => getCorpusAliasCollisions('ResearchScope', ['../Outside.md'], { '../Outside.md': [] })).toThrow('note listing is invalid');
 });
