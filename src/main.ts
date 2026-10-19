@@ -10,7 +10,7 @@ import { listNotes, visiblePath, resolveScope, prepareContext, prepareBatchConte
 import { runCodex, runBatchCodex } from '../workflow/codex.mjs';
 import { apply, hash, listTransactionJournals, readTransactionReview, recoverTransactionJournal, rollbackTransactionJournal, review as reviewPlan, safePath } from '../workflow/knowledge.mjs';
 import { renderProposalReviewCard, type ProposalReviewCard } from './proposal-review';
-import { RESEARCH_LIMITS, assertResearchSourcesFresh, buildResearchDraft, buildResearchSourceSet, listResearchFiles, researchEvidenceIds } from '../workflow/research.mjs';
+import { RESEARCH_LIMITS, assertResearchSourcesFresh, buildResearchBibliography, buildResearchDraft, buildResearchSourceSet, listResearchFiles, researchEvidenceIds } from '../workflow/research.mjs';
 import { extractPdfPages } from '../workflow/research-pdf.mjs';
 const VIEW = 'knowledge-agent-workbench';
 class CorpusFolderPicker extends FuzzySuggestModal<TFolder> {
@@ -70,19 +70,21 @@ class Workbench extends ItemView {
     const researchActions = researchPanel.createDiv({ cls: 'pga-actions' });
     const previewResearch = researchActions.createEl('button', { text: 'Preview selected evidence / 預覽研究來源' }); previewResearch.disabled = true;
     const cancelResearch = researchActions.createEl('button', { text: 'Cancel research preview / 取消研究預覽' }); cancelResearch.disabled = true;
+    const copyResearchBibliography = researchActions.createEl('button', { text: 'Copy source bibliography / 複製書目清單' }); copyResearchBibliography.disabled = true;
     const prepareResearchChat = researchActions.createEl('button', { text: 'Prepare Chat draft / 建立聊天草稿' }); prepareResearchChat.disabled = true;
     const researchStatus = researchPanel.createDiv({ cls: 'pga-status', attr: { role: 'status', 'aria-live': 'polite' }, text: 'Select source notes and review their exact evidence before preparing a draft.' });
     const researchPreview = researchPanel.createDiv({ cls: 'pga-research-preview', attr: { 'aria-label': 'Research source preview' } });
     type WorkbenchContext = Context | Awaited<ReturnType<typeof prepareBatchContext>>;
     let corpus = '', context: WorkbenchContext | undefined, reviewed: Reviewed | null = null;
     let researchSet: ReturnType<typeof buildResearchSourceSet> | undefined;
-    let researchDraft = '', researchCorpus = '', researchFolder = '', researchGeneration = 0;
+    let researchDraft = '', researchBibliography = '', researchCorpus = '', researchFolder = '', researchGeneration = 0;
     const researchPdfPageRanges = new Map<string, string>();
     let historyLoading = false, curatorLoading = false;
     const invalidate = () => { ++this.generation; context = undefined; reviewed = null; consent.checked = false; send.disabled = true; contextArea.empty(); resultArea.empty(); };
     const invalidateResearch = () => {
-      ++researchGeneration; researchSet = undefined; researchDraft = ''; researchCorpus = ''; researchFolder = '';
+      ++researchGeneration; researchSet = undefined; researchDraft = ''; researchBibliography = ''; researchCorpus = ''; researchFolder = '';
       researchPreview.empty(); prepareResearchChat.disabled = true;
+      copyResearchBibliography.disabled = true;
       previewResearch.disabled = !researchQuestion.value.trim() || !researchSources.selectedOptions.length;
     };
     const renderResearchPdfRanges = () => {
@@ -111,6 +113,7 @@ class Workbench extends ItemView {
       cancelResearch.disabled = !this.researchAbort;
       researchPdfRanges.querySelectorAll('input').forEach(input => { (input as HTMLInputElement).disabled = busy; });
       previewResearch.disabled = busy || !researchQuestion.value.trim() || !researchSources.selectedOptions.length;
+      copyResearchBibliography.disabled = busy || !researchBibliography;
       prepareResearchChat.disabled = busy || !researchSet;
     };
     const openCorpusNote = async (relativePath: string, selectedFolder: string, selectedCorpus: string) => {
@@ -334,6 +337,17 @@ class Workbench extends ItemView {
     this.registerDomEvent(consent, 'change', () => { send.disabled = !context || !consent.checked || !!this.abort; });
     cancel.onclick = () => this.abort?.abort();
     cancelResearch.onclick = () => this.researchAbort?.abort();
+    copyResearchBibliography.onclick = async () => {
+      if (!researchBibliography) return;
+      try {
+        if (typeof navigator === 'undefined' || !navigator.clipboard || typeof navigator.clipboard.writeText !== 'function')
+          throw new Error('Clipboard access is unavailable. Select and copy the bibliography preview manually.');
+        await navigator.clipboard.writeText(researchBibliography);
+        researchStatus.setText('Copied the metadata-only bibliography. It is not formatted by CSL; use Zotero for a publication style.');
+      } catch (error) {
+        researchStatus.setText(error instanceof Error ? error.message : 'Could not copy the bibliography. Select and copy its preview manually.');
+      }
+    };
     load.onclick = async () => {
       invalidate(); invalidateResearch(); locked(true);
       try {
@@ -412,15 +426,18 @@ class Workbench extends ItemView {
         if (this.plugin.settings.corpusFolder !== selectedFolder || await this.plugin.corpus() !== selectedCorpus) throw new Error('Corpus changed while reading sources. Reload and preview again.');
         researchSet = buildResearchSourceSet(researchQuestion.value, inputs);
         researchDraft = buildResearchDraft(researchSet);
+        researchBibliography = buildResearchBibliography(researchSet);
         researchCorpus = selectedCorpus;
         researchFolder = selectedFolder;
         researchPreview.empty();
         researchPreview.createEl('h4', { text: 'Exact editable Chat draft / 完整聊天草稿' });
         researchPreview.createEl('p', { text: `${researchSet.sources.length} source(s) · ${researchEvidenceIds(researchSet).length} evidence block(s) · ${researchSet.totalEvidenceChars.toLocaleString()} evidence characters. Markdown lines and PDF page labels are retained. Source content is untrusted; Chat does not start automatically.` });
         researchPreview.createEl('pre', { text: researchDraft, cls: 'pga-code' });
+        researchPreview.createEl('h4', { text: 'Source bibliography · supplied metadata only / 來源書目 · 僅使用既有欄位' });
+        researchPreview.createEl('pre', { text: researchBibliography, cls: 'pga-code' });
         researchStatus.setText('Source hashes and locators are ready. Review the exact draft above; select Prepare Chat draft to copy it to an editable, unsent Chat.');
       } catch (error) {
-        researchSet = undefined; researchDraft = ''; researchPreview.empty();
+        researchSet = undefined; researchDraft = ''; researchBibliography = ''; researchPreview.empty();
         researchStatus.setText(error instanceof Error ? error.message : 'Could not prepare the selected Research sources.');
       } finally {
         if (this.researchAbort === controller) this.researchAbort = undefined;

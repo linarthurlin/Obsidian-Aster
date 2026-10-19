@@ -17,7 +17,8 @@ it('requires explicit scope loading, context preview and consent; changing query
   await mkdir(join(home,'Selected/Research'),{recursive:true});await mkdir(join(home,'Selected/Archive'),{recursive:true});
   await writeFile(join(home,'Selected/Research/Meeting.md'),'Synthetic duplicate title fixture.');
   await writeFile(join(home,'Selected/Archive/Meeting.md'),'Synthetic duplicate title fixture.');
-  const dom=new JSDOM('<main></main>'), doc=dom.window.document;let spawned=0;const factories=new Map<string,any>();
+  const dom=new JSDOM('<main></main>'), doc=dom.window.document;let spawned=0,clipboardText='';const factories=new Map<string,any>();
+  Object.defineProperty(dom.window.navigator,'clipboard',{configurable:true,value:{writeText:async(text:string)=>{clipboardText=text}}});
   const proto=dom.window.HTMLElement.prototype as any;
   proto.empty=function(){this.replaceChildren()};proto.addClass=function(cls:string){this.classList.add(cls)};
   proto.setText=function(text:string){this.textContent=text};
@@ -41,7 +42,7 @@ it('requires explicit scope loading, context preview and consent; changing query
   class TFolder {}
   class ItemView {app=app;contentEl=doc.createElement('div');constructor(){doc.querySelector('main')!.appendChild(this.contentEl)}registerDomEvent(el:any,event:string,fn:any){el.addEventListener(event,fn)}}
   const module={exports:{}};
-  runInNewContext(await readFile('dist/plugin/main.js','utf8'),{module,exports:module.exports,process,Buffer,URL,AbortController,setTimeout,clearTimeout,
+  runInNewContext(await readFile('dist/plugin/main.js','utf8'),{module,exports:module.exports,process,Buffer,URL,AbortController,navigator:dom.window.navigator,setTimeout,clearTimeout,
     require:(name:string)=>name==='obsidian'?{Plugin,ItemView,PluginSettingTab:class{},Setting:class{},FuzzySuggestModal,TFile,TFolder,
       loadPdfJs:async()=>({getDocument:()=>({promise:Promise.resolve({numPages:2,getPageLabels:async()=>['i','12'],getPage:async(pageNumber:number)=>({getTextContent:async()=>({items:[{str:pageNumber===1?'Page one must stay out of the selected evidence.':'Selected page two contains a synthetic finding.'}]})})}),destroy:async()=>{}})}),
       parseFrontMatterAliases:(frontmatter:any)=>typeof frontmatter?.aliases==='string'?[frontmatter.aliases]:Array.isArray(frontmatter?.aliases)?frontmatter.aliases.filter((alias:any)=>typeof alias==='string'):null}:name==='node:child_process'?{spawn:()=>{spawned++;throw new Error('NETWORK_NOT_ALLOWED')}}:name==='node:os'?{...require('node:os'),homedir:()=>home}:require(name)});
@@ -73,6 +74,9 @@ it('requires explicit scope loading, context preview and consent; changing query
   const researchPreview=doc.querySelector('[aria-label="Research source preview"]')!;
   expect(researchPreview.textContent).toContain('smith2025memory');expect(researchPreview.textContent).toContain('Zotero p. 12');
   expect(researchPreview.textContent).toContain('S1-E1');expect(button('Prepare Chat draft').disabled).toBe(false);expect(spawned).toBe(0);
+  expect(researchPreview.textContent).toContain('Source bibliography · supplied metadata only');
+  expect(button('Copy source bibliography').disabled).toBe(false);await invoke(button('Copy source bibliography'));
+  expect(clipboardText).toContain('[@smith2025memory] A\\. Smith (2025)');expect(clipboardText).toContain('Source: "Zotero.md" (markdown)');
   await writeFile(join(home,'Selected/Zotero.md'),'---\ntitle: Changed after preview\n---\nThis source was changed by a synthetic test after preview.');
   await invoke(button('Prepare Chat draft'));expect(doc.querySelector('.pga-research .pga-status')?.textContent).toContain('changed after preview');expect(spawned).toBe(0);
   await invoke(button('Load scoped notes'));
@@ -84,6 +88,8 @@ it('requires explicit scope loading, context preview and consent; changing query
   expect(doc.querySelector('[aria-label="Research source preview"]')?.textContent).toContain('PDF p. 12 (page 2)');
   expect(doc.querySelector('[aria-label="Research source preview"]')?.textContent).toContain('Selected page two contains a synthetic finding.');
   expect(doc.querySelector('[aria-label="Research source preview"]')?.textContent).not.toContain('Page one must stay out');
+  await invoke(button('Copy source bibliography'));
+  expect(clipboardText).toContain('[@doe2026synthetic] A\\. Doe (2026)');expect(clipboardText).not.toContain('Selected page two contains');
   await writeFile(join(home,'Selected/Paper.pdf'),'changed synthetic fake PDF');
   await invoke(button('Prepare Chat draft'));expect(doc.querySelector('.pga-research .pga-status')?.textContent).toContain('changed after preview');expect(spawned).toBe(0);
   await invoke(button('Load scoped notes'));const target=doc.querySelector('select[aria-label="Target notes, select one or more"]')!;target.value='Note.md';target.dispatchEvent(new dom.window.Event('change'));
