@@ -1,8 +1,8 @@
 import { it, expect } from 'vitest';
-import { mkdtemp, mkdir, writeFile, readFile, symlink, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, symlink, realpath, stat, utimes, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { prepareContext, searchCorpus, getCorpusBacklinks, contextDigest, assertContextFresh, suggestionPlan, validateSuggestion, resolveScope, listNotes } from '../workflow/corpus.mjs';
+import { prepareContext, searchCorpus, invalidateCorpusSearchIndex, getCorpusBacklinks, contextDigest, assertContextFresh, suggestionPlan, validateSuggestion, resolveScope, listNotes } from '../workflow/corpus.mjs';
 import { normalizeSettings } from '../src/settings';
 async function fixture() {
   const home=await mkdtemp(join(tmpdir(),'ka-corpus-')),root=join(home,'Selected');await mkdir(root);
@@ -41,6 +41,28 @@ it('searches only visible Corpus notes and returns bounded excerpts for navigati
   expect(result.results[0].path).not.toContain('Outside');
   await expect(searchCorpus(f.root,'')).rejects.toThrow('search query');
   await expect(searchCorpus(f.root,'Bayesian',51)).rejects.toThrow('between 1 and 50');
+});
+it('reuses one explicit in-memory search index and rebuilds when file metadata changes',async()=>{
+  const f=await fixture();invalidateCorpusSearchIndex();
+  const realNow=Date.now;let now=realNow();Date.now=()=>now;
+  try {
+    const first=await searchCorpus(f.root,'Bayesian');
+    const second=await searchCorpus(f.root,'Bayesian');
+    expect(first.cacheHit).toBe(false);expect(first.scannedBytes).toBeGreaterThan(0);expect(first.indexedBytes).toBe(first.scannedBytes);
+    expect(second.cacheHit).toBe(true);expect(second.scannedBytes).toBe(0);expect(second.indexedBytes).toBe(first.indexedBytes);
+    expect(second.results).toEqual(first.results);
+
+    const alternate=join(f.home,'Alternate');await mkdir(alternate);await writeFile(join(alternate,'Other.md'),'Bayesian notes in another selected scope.');
+    expect((await searchCorpus(alternate,'Bayesian')).cacheHit).toBe(false);
+    expect((await searchCorpus(f.root,'Bayesian')).cacheHit).toBe(false);
+
+    const source=join(f.root,'Source.md'),before=await stat(source),nextTime=new Date(before.mtimeMs+10_000);
+    await writeFile(source,'# Source\n\nCatalyst prior combines with observations.\n');
+    await utimes(source,nextTime,nextTime);
+    now+=15_001;
+    const rebuilt=await searchCorpus(f.root,'Bayesian');
+    expect(rebuilt.cacheHit).toBe(false);expect(rebuilt.scannedBytes).toBeGreaterThan(0);expect(rebuilt.results).toHaveLength(0);
+  } finally { Date.now=realNow;invalidateCorpusSearchIndex();await rm(f.home,{recursive:true,force:true}); }
 });
 it('returns only resolved backlink sources that are members of the selected Corpus',async()=>{
   const resolvedLinks={

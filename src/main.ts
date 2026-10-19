@@ -4,8 +4,9 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { normalizeSettings, type Settings } from './settings';
+import { registerCorpusSearchInvalidation } from './corpus-search-lifecycle';
 import { ChatView, ASTER_CHAT_VIEW } from './chat-view';
-import { listNotes, visiblePath, resolveScope, prepareContext, prepareBatchContext, contextDigest, assertContextFresh, suggestionPlan, batchSuggestionPlan, getCorpusLinkHealth, getCorpusTitleCollisions, getCorpusZeroByteNotes, type Context, type Reviewed } from '../workflow/corpus.mjs';
+import { listNotes, visiblePath, resolveScope, prepareContext, prepareBatchContext, contextDigest, assertContextFresh, suggestionPlan, batchSuggestionPlan, getCorpusLinkHealth, getCorpusTitleCollisions, getCorpusZeroByteNotes, invalidateCorpusSearchIndex, type Context, type Reviewed } from '../workflow/corpus.mjs';
 import { runCodex, runBatchCodex } from '../workflow/codex.mjs';
 import { apply, listTransactionJournals, readTransactionReview, recoverTransactionJournal, rollbackTransactionJournal, review as reviewPlan } from '../workflow/knowledge.mjs';
 import { renderProposalReviewCard, type ProposalReviewCard } from './proposal-review';
@@ -352,8 +353,11 @@ class Workbench extends ItemView {
 export default class KnowledgeAgent extends Plugin {
   settings: Settings = normalizeSettings(null);
   private saveQueue: Promise<void> = Promise.resolve();
+  private savedCorpusFolder = '';
+  private stopCorpusSearchInvalidation?: () => void;
   async onload() {
     this.settings = normalizeSettings(await this.loadData());
+    this.savedCorpusFolder = this.settings.corpusFolder;
     this.registerView(VIEW, leaf => new Workbench(leaf, this));
     this.registerView(ASTER_CHAT_VIEW, leaf => new ChatView(leaf, this));
     this.addCommand({ id: 'open-workbench', name: 'Open knowledge review workbench', callback: () => this.openWorkbench() });
@@ -361,13 +365,21 @@ export default class KnowledgeAgent extends Plugin {
     this.addCommand({ id: 'quick-ask-selection', name: 'Quick Ask: selected text', callback: () => this.quickAskSelection() });
     this.addCommand({ id: 'attach-active-note', name: 'Attach active note to Aster draft', callback: () => this.attachActiveNote() });
     this.addSettingTab(new AgentSettings(this.app, this));
+    this.stopCorpusSearchInvalidation = registerCorpusSearchInvalidation(this.app, eventRef => this.registerEvent(eventRef));
   }
   async corpus() {
     const adapter = this.app.vault.adapter as unknown as { getBasePath?: () => string };
     if (!adapter.getBasePath) throw new Error('A desktop filesystem vault is required.');
     return resolveScope(adapter.getBasePath(), this.settings.corpusFolder);
   }
-  async saveSettings() { this.settings = normalizeSettings(this.settings); const snapshot = this.settings; this.saveQueue = this.saveQueue.catch(() => {}).then(() => this.saveData(snapshot)); await this.saveQueue; }
+  async saveSettings() {
+    this.settings = normalizeSettings(this.settings);
+    if (this.settings.corpusFolder !== this.savedCorpusFolder) {
+      this.savedCorpusFolder = this.settings.corpusFolder;
+      invalidateCorpusSearchIndex();
+    }
+    const snapshot = this.settings; this.saveQueue = this.saveQueue.catch(() => {}).then(() => this.saveData(snapshot)); await this.saveQueue;
+  }
   async openWorkbench() {
     let leaf = this.app.workspace.getLeavesOfType(VIEW)[0];
     if (!leaf) { leaf = this.app.workspace.getLeaf('tab'); await leaf.setViewState({ type: VIEW, active: true }); }
@@ -404,7 +416,11 @@ export default class KnowledgeAgent extends Plugin {
     if (!leaf) { leaf = this.app.workspace.getLeaf('tab'); await leaf.setViewState({ type: ASTER_CHAT_VIEW, active: true }); }
     await this.app.workspace.revealLeaf(leaf);
   }
-  onunload() { this.app.workspace.detachLeavesOfType(VIEW); this.app.workspace.detachLeavesOfType(ASTER_CHAT_VIEW); }
+  onunload() {
+    this.stopCorpusSearchInvalidation?.();
+    this.app.workspace.detachLeavesOfType(VIEW); this.app.workspace.detachLeavesOfType(ASTER_CHAT_VIEW);
+    invalidateCorpusSearchIndex();
+  }
 }
 class AgentSettings extends PluginSettingTab {
   constructor(app: App, private plugin: KnowledgeAgent) { super(app, plugin); }

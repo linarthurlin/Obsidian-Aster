@@ -127,25 +127,88 @@ async function searchableNotes(root) {
     if (info.size > LIMITS.bytes) continue;
     totalBytes += info.size;
     if (totalBytes > LIMITS.searchBytes) throw new Error('Corpus exceeds the 20MB local search budget; choose a smaller folder.');
-    documents.push({ path, size: info.size });
+    documents.push({ path, size: info.size, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs });
   }
   return documents;
 }
+
+// Aster deliberately keeps at most one ephemeral, explicitly requested Corpus index.
+// It is never persisted and stores text only in this plugin process.
+let corpusSearchCache;
+let corpusSearchBuild;
+let corpusSearchGeneration = 0;
+const SEARCH_INDEX_METADATA_RECHECK_MS = 15_000;
+
+export function invalidateCorpusSearchIndex() {
+  corpusSearchGeneration++;
+  corpusSearchCache = undefined;
+  corpusSearchBuild = undefined;
+}
+
+function metadataFingerprint(documents) {
+  return JSON.stringify(documents.map(({ path, size, mtimeMs, ctimeMs }) => [path, size, mtimeMs, ctimeMs]));
+}
+
+async function buildCorpusSearchIndex(root, documents, fingerprint, generation) {
+  const indexed = [];
+  let indexedBytes = 0;
+  for (const document of documents) {
+    const text = await boundedRead(root, document.path);
+    indexedBytes += Buffer.byteLength(text, 'utf8');
+    if (indexedBytes > LIMITS.searchBytes) throw new Error('Corpus changed beyond the 20MB local search budget; choose a smaller folder.');
+    indexed.push({
+      ...document,
+      text,
+      normalizedText: text.normalize('NFKC').toLowerCase(),
+      normalizedPath: document.path.normalize('NFKC').toLowerCase(),
+    });
+  }
+  if (generation !== corpusSearchGeneration) throw new Error('Corpus changed while the local search index was being built. Run the search again.');
+  const latestDocuments = await searchableNotes(root);
+  if (metadataFingerprint(latestDocuments) !== fingerprint) throw new Error('Corpus changed while the local search index was being built. Run the search again.');
+  return { root, fingerprint, documents: indexed, indexedBytes };
+}
+
+async function getCorpusSearchIndex(root) {
+  const now = Date.now();
+  if (corpusSearchCache?.root === root && now >= corpusSearchCache.checkedAt
+    && now - corpusSearchCache.checkedAt < SEARCH_INDEX_METADATA_RECHECK_MS)
+    return { index: corpusSearchCache, cacheHit: true };
+  const documents = await searchableNotes(root);
+  const fingerprint = metadataFingerprint(documents);
+  if (corpusSearchCache?.root === root && corpusSearchCache.fingerprint === fingerprint) {
+    corpusSearchCache.checkedAt = Date.now();
+    return { index: corpusSearchCache, cacheHit: true };
+  }
+  const generation = corpusSearchGeneration;
+  if (corpusSearchBuild?.root === root && corpusSearchBuild.fingerprint === fingerprint && corpusSearchBuild.generation === generation) {
+    const index = await corpusSearchBuild.promise;
+    return { index, cacheHit: true };
+  }
+  const promise = buildCorpusSearchIndex(root, documents, fingerprint, generation);
+  corpusSearchBuild = { root, fingerprint, generation, promise };
+  try {
+    const index = await promise;
+    if (generation !== corpusSearchGeneration) throw new Error('Corpus changed while the local search index was being built. Run the search again.');
+    index.checkedAt = Date.now();
+    corpusSearchCache = index;
+    return { index, cacheHit: false };
+  } finally {
+    if (corpusSearchBuild?.promise === promise) corpusSearchBuild = undefined;
+  }
+}
+
 export async function searchCorpus(root, query, limit = LIMITS.searchResults) {
   if (typeof query !== 'string' || !query.trim() || query.length > 500) throw new Error('Enter a search query of 1–500 characters.');
   if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new Error('Search result limit must be between 1 and 50.');
   root = await realpath(root);
+  const generation = corpusSearchGeneration;
   const terms = query.normalize('NFKC').toLowerCase().split(/\s+/).filter(Boolean);
-  const documents = await searchableNotes(root);
+  const { index, cacheHit } = await getCorpusSearchIndex(root);
   const hits = [];
-  let scannedBytes = 0;
-  for (const document of documents) {
-    const text = await boundedRead(root, document.path);
-    scannedBytes += Buffer.byteLength(text, 'utf8');
-    if (scannedBytes > LIMITS.searchBytes) throw new Error('Corpus changed beyond the 20MB local search budget; choose a smaller folder.');
-    const normalized = text.normalize('NFKC').toLowerCase();
-    const path = document.path.normalize('NFKC').toLowerCase();
-    const score = terms.reduce((sum, term) => sum + (path.includes(term) ? 5 : 0) + (normalized.includes(term) ? 2 : 0), 0);
+  for (const document of index.documents) {
+    const { text } = document;
+    const score = terms.reduce((sum, term) => sum + (document.normalizedPath.includes(term) ? 5 : 0) + (document.normalizedText.includes(term) ? 2 : 0), 0);
     if (!score) continue;
     const originalMatch = terms.map(term => text.toLowerCase().indexOf(term)).filter(index => index >= 0);
     const at = originalMatch.length ? Math.min(...originalMatch) : 0;
@@ -157,8 +220,11 @@ export async function searchCorpus(root, query, limit = LIMITS.searchResults) {
       startLine: text.slice(0, from).split('\n').length,
     });
   }
+  if (index !== corpusSearchCache || generation !== corpusSearchGeneration)
+    throw new Error('Corpus changed while search results were being prepared. Run the search again.');
   const ordered = hits.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
-  return { query: query.trim(), scannedFiles: documents.length, scannedBytes, truncated: ordered.length > limit, results: ordered.slice(0, limit) };
+  return { query: query.trim(), scannedFiles: index.documents.length, scannedBytes: cacheHit ? 0 : index.indexedBytes,
+    indexedBytes: index.indexedBytes, cacheHit, truncated: ordered.length > limit, results: ordered.slice(0, limit) };
 }
 export async function readCorpusNote(root, relativePath, maxChars = 24000) {
   if (!visiblePath(relativePath) || !relativePath.endsWith('.md')) throw new Error('Choose a visible Markdown path inside the configured Corpus.');

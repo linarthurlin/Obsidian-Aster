@@ -40,7 +40,7 @@ it('reviews, applies and rolls back only the individually approved target in a m
   proto.createDiv = function(options: any = {}) { return this.createEl('div', options); };
   proto.createSpan = function(options: any = {}) { return this.createEl('span', options); };
 
-  const app = { vault: { adapter: { getBasePath: () => home } }, workspace: { detachLeavesOfType: () => {} } };
+  const app = { vault: { adapter: { getBasePath: () => home } }, workspace: { detachLeavesOfType: () => {}, onLayoutReady: () => {} } };
   class Plugin {
     app = app;
     async loadData() { return { corpusFolder: 'Selected', executable: process.execPath }; }

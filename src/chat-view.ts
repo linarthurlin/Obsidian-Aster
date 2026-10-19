@@ -687,7 +687,10 @@ export class ChatView extends ItemView {
         const root = await this.plugin.corpus();
         const result = await searchCorpus(root, searchQuery.value);
         if (this.closed) return;
-        searchStatus.setText(result.results.length + ' result(s) · ' + result.scannedFiles + ' notes · ' + Math.ceil(result.scannedBytes / 1024).toLocaleString() + ' KB scanned locally'
+        const indexActivity = result.cacheHit
+          ? 'local index reused · ' + Math.ceil(result.indexedBytes / 1024).toLocaleString() + ' KB retained · 0 KB note text reread'
+          : 'local index built · ' + Math.ceil(result.scannedBytes / 1024).toLocaleString() + ' KB read into memory';
+        searchStatus.setText(result.results.length + ' result(s) · ' + result.scannedFiles + ' notes · ' + indexActivity
           + (result.truncated ? ' · showing the first ' + result.results.length : '') + '. No note text was sent.');
         if (!result.results.length) searchResults.createDiv({ cls: 'pga-chat-list-empty', text: 'No matching notes in the configured Corpus.' });
         for (const hit of result.results) {

@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { LIMITS, listNotes, searchCorpus } from '../workflow/corpus.mjs';
+import { LIMITS, invalidateCorpusSearchIndex, listNotes, searchCorpus } from '../workflow/corpus.mjs';
 
 const segmenter = new Intl.Segmenter('zh-TW', { granularity: 'word' });
 const stopWords = new Set('a an and are as at be does for from how in is it of on or the this through to with why'.split(' '));
@@ -160,6 +160,7 @@ try {
     : queries;
   const measured = [];
   for (const query of casesToRun) {
+    invalidateCorpusSearchIndex();
     const started = performance.now();
     const result = await searchCorpus(root, query.query, 5);
     const elapsedMs = performance.now() - started;
@@ -173,6 +174,23 @@ try {
     }
     measured.push({ query, hits: result.results, elapsedMs, scannedBytes: result.scannedBytes,
       excerptChars: result.results.reduce((total, hit) => total + hit.excerpt.length, 0) });
+  }
+
+  invalidateCorpusSearchIndex();
+  global.gc?.();
+  const heapBeforeIndex = process.memoryUsage().heapUsed;
+  const indexStarted = performance.now();
+  const warmed = await searchCorpus(root, casesToRun[0].query, 5);
+  const indexBuildAndFirstQueryMs = performance.now() - indexStarted;
+  global.gc?.();
+  const heapAfterIndex = process.memoryUsage().heapUsed;
+  const warmMeasured = [];
+  for (const query of casesToRun) {
+    const started = performance.now();
+    const result = await searchCorpus(root, query.query, 5);
+    const elapsedMs = performance.now() - started;
+    if (!result.cacheHit || result.scannedBytes !== 0) throw new Error('Warm Corpus search unexpectedly rebuilt or reread the local index.');
+    warmMeasured.push({ query, hits: result.results, elapsedMs, scannedBytes: result.scannedBytes, indexedBytes: result.indexedBytes, cacheHit: result.cacheHit });
   }
 
   const segmentedIndex = await buildSegmentedBm25Index(root);
@@ -196,9 +214,13 @@ try {
       experimentalSegmentedBm25: { overall: scoreGroup(experimental), lexical: scoreGroup(experimentalLexical), paraphrase: scoreGroup(experimentalParaphrase) },
     },
     cost: {
-      scanBytesPerQuery: { p50: quantile(measured.map(item => item.scannedBytes), 0.5), p95: quantile(measured.map(item => item.scannedBytes), 0.95) },
+      coldIndexBuildAndQuery: { elapsedMs: indexBuildAndFirstQueryMs, indexedBytes: warmed.indexedBytes,
+        heapUsedDeltaBytes: global.gc ? heapAfterIndex - heapBeforeIndex : null },
+      coldSearchPerQuery: { bytesRead: { p50: quantile(measured.map(item => item.scannedBytes), 0.5), p95: quantile(measured.map(item => item.scannedBytes), 0.95) },
+        latencyMs: { p50: quantile(measured.map(item => item.elapsedMs), 0.5), p95: quantile(measured.map(item => item.elapsedMs), 0.95) } },
+      warmSearchPerQuery: { bytesRead: 0, cacheHitRate: warmMeasured.filter(item => item.cacheHit).length / warmMeasured.length,
+        latencyMs: { p50: quantile(warmMeasured.map(item => item.elapsedMs), 0.5), p95: quantile(warmMeasured.map(item => item.elapsedMs), 0.95) } },
       returnedExcerptCharsPerQuery: { p50: quantile(measured.map(item => item.excerptChars), 0.5), p95: quantile(measured.map(item => item.excerptChars), 0.95), max: Math.max(...measured.map(item => item.excerptChars)) },
-      latencyMs: { p50: quantile(measured.map(item => item.elapsedMs), 0.5), p95: quantile(measured.map(item => item.elapsedMs), 0.95) },
       experimentalIndex: { buildMs: segmentedIndex.buildMs, serializedTokenBytes: segmentedIndex.indexBytes,
         queryLatencyMs: { p50: quantile(experimental.map(item => item.elapsedMs), 0.5), p95: quantile(experimental.map(item => item.elapsedMs), 0.95) } },
     },
@@ -209,5 +231,6 @@ try {
   };
   console.log(JSON.stringify(output, null, 2));
 } finally {
+  invalidateCorpusSearchIndex();
   await rm(root, { recursive: true, force: true });
 }

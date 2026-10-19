@@ -151,6 +151,7 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
   }
   class Plugin {
     app = { workspace: {
+      onLayoutReady: () => {},
       detachLeavesOfType() {},
       getActiveViewOfType: () => activeMarkdownView,
       getLeavesOfType: () => currentChatView ? [{ view: currentChatView }] : [],

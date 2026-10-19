@@ -8,7 +8,7 @@ it('registers Chat and Knowledge Studio without scanning a vault or starting a m
   const commands: any[] = [], views: any[] = [];
   let spawned = 0;
   class Plugin {
-    app = { workspace: { detachLeavesOfType: () => {} } };
+    app = { workspace: { detachLeavesOfType: () => {}, onLayoutReady: () => {} } };
     async loadData() { return null; }
     addSettingTab() {}
     registerView(...args: any[]) { views.push(args); }

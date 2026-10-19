@@ -26,7 +26,7 @@ it('requires explicit scope loading, context preview and consent; changing query
   let vaultBodyReads=0;
   const app={vault:{adapter:{getBasePath:()=>home},getAbstractFileByPath:(path:string)=>new TFile(path,path.endsWith('/Empty.md')?0:24),
     read:async()=>{vaultBodyReads++;throw new Error('Corpus metadata report must not read note bodies')},
-    cachedRead:async()=>{vaultBodyReads++;throw new Error('Corpus metadata report must not read note bodies')}},workspace:{detachLeavesOfType:()=>{}},metadataCache:{
+    cachedRead:async()=>{vaultBodyReads++;throw new Error('Corpus metadata report must not read note bodies')}},workspace:{detachLeavesOfType:()=>{},onLayoutReady:()=>{}},metadataCache:{
     resolvedLinks:{'Selected/Note.md':{'Selected/Source.md':1}},
     unresolvedLinks:{'Selected/Source.md':{'Missing synthetic target':1}},
   }};
