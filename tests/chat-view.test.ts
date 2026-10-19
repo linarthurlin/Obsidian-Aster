@@ -284,6 +284,13 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     expect(doc.querySelector('.pga-chat-list-empty')?.textContent).toContain('No chat titles match');
     expect(fake.children).toHaveLength(0);
 
+    const corpusToolsToggle = doc.querySelector('[aria-label="Allow read-only Corpus tools for this chat"]') as HTMLInputElement;
+    expect(corpusToolsToggle.checked).toBe(false);
+    corpusToolsToggle.checked = true;
+    await corpusToolsToggle.onchange?.(new dom.window.Event('change'));
+    expect(plugin.settings.chats[0].corpusToolsEnabled).toBe(true);
+    expect(vaultReads).toEqual([]);
+
     const composer = doc.querySelector('[aria-label="Message Aster"]') as HTMLTextAreaElement;
     composer.value = 'Please say hello.';
     (Array.from(doc.querySelectorAll('button')).find(button => button.textContent === 'Send') as HTMLButtonElement).onclick?.(new dom.window.Event('click'));
@@ -297,6 +304,8 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     expect(fake.children.some(child => child.args[0] === 'app-server')).toBe(true);
     expect(plugin.settings.chats[0].providerThreadId).toMatch(/^ui-thread-\d+$/);
     expect(plugin.saved.chats[0].providerThreadId).toBe(plugin.settings.chats[0].providerThreadId);
+    expect(fake.children.find(child => child.args[0] === 'app-server').requests.find((request: any) => request.method === 'thread/start')
+      .params.dynamicTools.map((tool: any) => tool.name)).toEqual(['aster_search_corpus', 'aster_read_corpus_note']);
     chatId = plugin.settings.chats[0].id;
     historyPath = join(testHome, '.aster', 'chats', chatId + '.json');
     const saved = JSON.parse(await readFile(historyPath, 'utf8'));
@@ -317,6 +326,8 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     const resumedServer = [...fake.children].reverse().find(child => child.args[0] === 'app-server');
     expect(resumedServer.requests.find((request: any) => request.method === 'thread/resume')?.params.threadId)
       .toBe(plugin.settings.chats[0].providerThreadId);
+    expect(resumedServer.requests.find((request: any) => request.method === 'thread/resume')?.params.dynamicTools)
+      .toMatchObject([{ name: 'aster_search_corpus' }, { name: 'aster_read_corpus_note' }]);
     expect(resumedServer.requests.find((request: any) => request.method === 'turn/start')?.params.input[0].text)
       .toBe('Follow up after reopening.');
     expect(JSON.parse(await readFile(historyPath, 'utf8')).map((message: any) => message.role))

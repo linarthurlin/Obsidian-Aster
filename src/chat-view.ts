@@ -4,6 +4,7 @@ import { lstat } from 'node:fs/promises';
 import { listCodexModels } from '../workflow/codex-catalog.mjs';
 import { applyChatCommand, CHAT_COMMANDS, getChatCommandMatches } from '../workflow/chat-commands.mjs';
 import { getCorpusBacklinks, listNotes, LIMITS, searchCorpus } from '../workflow/corpus.mjs';
+import { dispatchChatCorpusTool } from '../workflow/chat-tools.mjs';
 import { defaultExecutable } from '../workflow/codex.mjs';
 import { CodexAppServerClient, type ThreadUsage } from '../workflow/codex-app-server.mjs';
 import { defaultChatStoreRoot, loadChatHistory, saveChatHistory, deleteChatHistory } from '../workflow/chat-store.mjs';
@@ -401,7 +402,7 @@ export class ChatView extends ItemView {
     const chat: ChatThread = {
       id: randomUUID(), title: 'New chat', createdAt: now, updatedAt: now,
       ...(project ? { projectId: project.id, projectName: project.name, projectInstructions: project.instructions } : {}),
-      model: this.plugin.settings.model, thinking: this.plugin.settings.thinking,
+      model: this.plugin.settings.model, thinking: this.plugin.settings.thinking, corpusToolsEnabled: false, corpusToolsProvisioned: false,
     };
     this.plugin.settings.activeProjectId = project?.id ?? '';
     this.plugin.settings.chats.unshift(chat);
@@ -419,7 +420,7 @@ export class ChatView extends ItemView {
     root.empty(); root.addClass('pga-chat');
     const header = root.createDiv({ cls: 'pga-chat-header' });
     header.createEl('h2', { text: 'Aster Chat' });
-    header.createEl('p', { text: 'Chat through your local Codex CLI. Aster stores transcripts and Skills under your local user profile, and Codex keeps its own persistent session. Projects group chats and provide visible instruction snapshots for new threads. Quick Ask places only the selected passage in an editable draft. Skills expand only when selected from the slash menu; their text is visible and editable before sending. Vault notes are excluded unless you explicitly preview a note or a bounded folder from the configured Corpus and add its text to the draft.' });
+    header.createEl('p', { text: 'Chat through your local Codex CLI. Aster stores transcripts and Skills under your local user profile, and Codex keeps its own persistent session. Projects group chats and provide visible instruction snapshots for new threads. Quick Ask places only the selected passage in an editable draft. Skills expand only when selected from the slash menu; their text is visible and editable before sending. Vault notes are excluded unless you explicitly preview and add context to the draft, or enable this chat’s read-only Corpus tools.' });
     const layout = root.createDiv({ cls: 'pga-chat-layout' });
     const sidebar = layout.createDiv({ cls: 'pga-chat-sidebar' });
     const sidebarActions = sidebar.createDiv({ cls: 'pga-chat-sidebar-actions' });
@@ -638,6 +639,38 @@ export class ChatView extends ItemView {
       } finally { this.catalogLoading = false; }
       await this.render();
     };
+    const corpusToolsField = toolbar.createDiv({ cls: 'pga-chat-corpus-tools-field' });
+    const corpusToolsLabel = corpusToolsField.createEl('label');
+    const corpusToolsToggle = corpusToolsLabel.createEl('input', { type: 'checkbox', attr: { 'aria-label': 'Allow read-only Corpus tools for this chat' } });
+    corpusToolsToggle.checked = thread?.corpusToolsEnabled === true;
+    corpusToolsToggle.disabled = !thread || (!this.plugin.settings.corpusFolder && !thread.corpusToolsEnabled) || (!!thread.providerThreadId && !thread.corpusToolsProvisioned);
+    corpusToolsLabel.appendChild(corpusToolsLabel.ownerDocument.createTextNode(' Read-only Corpus tools'));
+    corpusToolsField.setAttribute('title', 'Allows this chat to search the configured Corpus and read one note at a time. Matching excerpts or note text are sent to the selected Codex model. Aster cannot edit or delete notes through these tools. Enable before the first message in a new chat.');
+    corpusToolsToggle.onchange = async () => {
+      const current = this.thread();
+      if (!current) return;
+      if (corpusToolsToggle.checked && !current.corpusToolsProvisioned && current.providerThreadId) {
+        corpusToolsToggle.checked = false;
+        this.setChatStatus(current.id, 'Create a new chat to enable Corpus tools for a Codex session that was started without them.');
+        return;
+      }
+      if (corpusToolsToggle.checked) {
+        try { await this.plugin.corpus(); }
+        catch (error) {
+          corpusToolsToggle.checked = false;
+          this.setChatStatus(current.id, error instanceof Error ? error.message : 'Choose a valid Corpus folder before enabling tools.');
+          return;
+        }
+      }
+      current.corpusToolsEnabled = corpusToolsToggle.checked;
+      current.updatedAt = Date.now();
+      if (!current.corpusToolsEnabled) this.aborts.get(current.id)?.abort();
+      this.setChatStatus(current.id, current.corpusToolsEnabled
+        ? `Read-only Corpus tools are enabled for this chat (${this.plugin.settings.corpusFolder}). Matching excerpts or note text may be sent to the selected Codex model.`
+        : 'Read-only Corpus tools are disabled for this chat.');
+      await this.save();
+      await this.render();
+    };
     const corpusSearch = panel.createDiv({ cls: 'pga-chat-corpus-search' });
     corpusSearch.hidden = true;
     const searchForm = corpusSearch.createDiv({ cls: 'pga-chat-corpus-search-form' });
@@ -836,6 +869,16 @@ export class ChatView extends ItemView {
       const threadId = currentThread.id;
       const text = input.value.trim();
       if (!text) return;
+      const corpusToolsEnabled = currentThread.corpusToolsEnabled === true;
+      const corpusFolderSnapshot = this.plugin.settings.corpusFolder;
+      let corpusRootSnapshot = '';
+      if (corpusToolsEnabled) {
+        try { corpusRootSnapshot = await this.plugin.corpus(); }
+        catch (error) {
+          this.setChatStatus(threadId, error instanceof Error ? error.message : 'Choose a valid Corpus folder before using Chat tools.');
+          return;
+        }
+      }
       const history = this.histories.get(currentThread.id) || [];
       if (history.length >= 80) {
         this.statusText = 'This chat reached the 80-message limit. Start a new chat to continue.';
@@ -852,7 +895,9 @@ export class ChatView extends ItemView {
       this.aborts.set(threadId, controller);
       const priorUsage = this.usageByThread.get(threadId);
       if (priorUsage) { priorUsage.stale = true; this.usageByThread.set(threadId, priorUsage); }
-      this.setChatStatus(threadId, 'Codex is responding. Aster sends the visible conversation text only; there is no hidden Vault context or Obsidian tool access.');
+      this.setChatStatus(threadId, corpusToolsEnabled
+        ? `Codex is responding with read-only access to ${corpusFolderSnapshot}. Corpus excerpts or note text may be sent to the selected model; Aster cannot edit or delete notes through these tools.`
+        : 'Codex is responding. Aster sends the visible conversation text only; there is no hidden Vault context or Obsidian tool access.');
       try { await saveChatHistory(defaultChatStoreRoot(), threadId, history); await this.save(); }
       catch (error) {
         history.pop(); currentThread.title = previousTitle; currentThread.updatedAt = previousUpdatedAt;
@@ -873,11 +918,19 @@ export class ChatView extends ItemView {
         if (controller.signal.aborted) throw new Error('Codex request cancelled.');
         let providerThreadId = this.providerThreads.get(threadId);
         if (!providerThreadId && requestThread.providerThreadId) {
-          providerThreadId = await client.resumeThread(requestThread.providerThreadId, requestThread.projectInstructions || '');
+          providerThreadId = await client.resumeThread(requestThread.providerThreadId, requestThread.projectInstructions || '', {
+            corpusToolsEnabled: requestThread.corpusToolsProvisioned === true && requestThread.corpusToolsEnabled === true,
+          });
+          if (requestThread.corpusToolsEnabled !== true && requestThread.corpusToolsProvisioned === true) {
+            requestThread.corpusToolsProvisioned = false;
+            await this.save();
+          }
           this.providerThreads.set(threadId, providerThreadId);
         }
         if (!providerThreadId) {
-          providerThreadId = await client.startThread({ model: requestThread.model || undefined, title: requestThread.title, projectInstructions: requestThread.projectInstructions || '' });
+          providerThreadId = await client.startThread({ model: requestThread.model || undefined, title: requestThread.title,
+            projectInstructions: requestThread.projectInstructions || '', corpusToolsEnabled });
+          requestThread.corpusToolsProvisioned = corpusToolsEnabled;
           requestThread.providerThreadId = providerThreadId;
           this.providerThreads.set(threadId, providerThreadId);
           try { await this.save(); }
@@ -899,6 +952,25 @@ export class ChatView extends ItemView {
             const usage = this.usageByThread.get(threadId);
             if (usage) { usage.stale = true; this.usageByThread.set(threadId, usage); this.updateUsage(threadId, usage, true); }
             this.setChatStatus(threadId, 'Codex compacted the conversation context; waiting for an updated usage report.');
+          },
+          corpusToolsEnabled: corpusToolsEnabled && requestThread.corpusToolsEnabled === true,
+          onToolActivity: (tool, stage) => {
+            const label = tool === 'aster_search_corpus' ? 'searching the configured Corpus' : 'reading one configured Corpus note';
+            this.setChatStatus(threadId, stage === 'started' ? `Codex is ${label} (read-only)…`
+              : stage === 'failed' ? 'Corpus tool failed safely; check the selected Corpus scope and try again.'
+                : 'Corpus tool finished; Codex is continuing its response…');
+          },
+          onToolCall: async ({ tool, arguments: args }) => {
+            if (requestThread.corpusToolsEnabled !== true || this.plugin.settings.corpusFolder !== corpusFolderSnapshot
+              || !corpusRootSnapshot || await this.plugin.corpus() !== corpusRootSnapshot) {
+              throw new Error('Corpus access was disabled or its scope changed. No note content was returned; review the Corpus setting and try again.');
+            }
+            const result = await dispatchChatCorpusTool(corpusRootSnapshot, tool, args);
+            if (requestThread.corpusToolsEnabled !== true || this.plugin.settings.corpusFolder !== corpusFolderSnapshot
+              || await this.plugin.corpus() !== corpusRootSnapshot) {
+              throw new Error('Corpus scope changed while the tool was running. No note content was returned.');
+            }
+            return result;
           },
         });
         if (controller.signal.aborted || this.closed) {

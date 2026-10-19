@@ -41,7 +41,7 @@ ROADMAP 未完成項目仍有效：繁中／混合語言自然改寫檢索品質
 - Skills MVP 已實作：遵循 Agent Skills `SKILL.md` 的 name/description/frontmatter 慣例，存在使用者 profile 的 `.aster/skills`，最多 40 個；支援建立、編輯、刪除和 slash menu 呼叫。只讀取單一 `SKILL.md`，不解析其引用檔、不執行 scripts、不授予工具或 Vault 權限；呼叫時完整展開成可見、可編輯的 user message，並保留在本機 transcript。`allowed-tools` 不予採用，因為 Aster 權限由 Aster 自己的 Tool Router 管理。
 - Workbench 現可用 Ctrl-click 選取 2–4 篇 Corpus 目標；target 文字合計上限 48,000 字元，來源證據最多 6 段。精確 context 先完整預覽並明確同意，再讓 Codex 只回傳屬於所選路徑的 operation。每篇提案分開顯示 diff 和來源摘錄，勾選只核准該篇；每次套用建立單筆 transaction journal，可各自 rollback。合成端到端測試使用假的 provider process 與 disposable Corpus，證明一項套用／回復不影響另一個未核准目標。
 - Vault Curator 有明確觸發的 Corpus link-health、重複標題與零位元組筆記候選：link health 只查詢選定 Corpus note paths 對應的 Obsidian `MetadataCache.unresolvedLinks`／`resolvedLinks` source keys；標題檢查只使用設定 Corpus 的相對 Markdown 路徑，依 NFKC 與大小寫正規化分組；空筆記檢查只讀 Corpus 內 `TFile.stat.size`，最多 2,000 個檔案，不讀正文。三種規則都不列舉 Corpus 外的 link source、不呼叫模型、不寫入，finding 開啟時重新驗證 scope。未解析連結、沒有 Corpus 內入向連結、重複檔名和零位元組檔案都只是 review candidate；空白佔位檔可能是刻意安排。設計採 Vault Inspector 的 read-only findings/evidence 方向；格式／YAML lint 留給成熟的 Obsidian Linter，不重做其規則。[Obsidian `unresolvedLinks` API](https://docs.obsidian.md/Reference/TypeScript%20API/MetadataCache/unresolvedLinks)；[Obsidian Vault API](https://docs.obsidian.md/Reference/TypeScript%2BAPI/App/vault)；[Vault Inspector link checks and confidence model](https://github.com/rogerdigital/vault-inspector#broken-links)；[Obsidian Linter](https://github.com/platers/obsidian-linter)。
-- 尚未實作工具活動與一般 Chat 中核准後 Obsidian 操作、Knowledge Studio 深度整合、Research Desk 或完整 Vault Curator 規則集。Corpus 搜尋、範圍內 backlinks 與開啟筆記、Folder chooser、單篇與受限資料夾 context、受限多目標 context、metadata-only link health／title candidates、journal recovery 和跨重啟歷史 UI 已有合成測試；真實 Obsidian runtime 仍待驗證。
+- 一般 Chat 工具活動與每個 session 獨立選擇加入的唯讀 Corpus 搜尋／單篇讀取已實作；Codex 仍沒有一般 Obsidian 寫入操作。Knowledge Studio 深度整合、Research Desk 與完整 Vault Curator 規則集仍未實作。Corpus 搜尋、範圍內 backlinks 與開啟筆記、Folder chooser、單篇與受限資料夾 context、受限多目標 context、metadata-only link health／title candidates、journal recovery、跨重啟歷史 UI 和 Chat dynamic tool loop 已有合成測試；dynamic tools 依賴 Codex App Server experimental/under-development protocol，真實 Obsidian runtime 仍待驗證。
 
 ## ANKS 與 Building a Second Brain
 
@@ -128,7 +128,7 @@ Per-session meter 使用 Codex usage update 的 `last.totalTokens`（active cont
 
 ### Phase 1 — 一般 Agent workspace
 
-實作 thread registry、多對話、model/thinking picker、context meter、stream/cancel、Project、Skills、slash menu、Quick Ask 和工具活動。首發 Codex 單一 provider，包含 capability flags 和 graceful fallback。一般 Chat 不自動附加 Vault。
+實作 thread registry、多對話、model/thinking picker、context meter、stream/cancel、Project、Skills、slash menu、Quick Ask 和工具活動。首發 Codex 單一 provider，包含 capability flags 和 graceful fallback。一般 Chat 不自動附加 Vault。唯讀 Corpus search/read dynamic tools 已有逐 session 開關、schema allowlist、範圍重驗、呼叫次數和輸出大小限制；因依賴 under-development API，先作 opt-in preview，待版本相容矩陣與 Obsidian runtime 驗證後再擴充。
 
 ### Phase 2 — Scoped Obsidian 工具與交易復原
 

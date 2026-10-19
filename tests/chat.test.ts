@@ -41,6 +41,9 @@ it('normalizes persisted chats with bounded message content and model-specific e
   expect(settings.chats[0]).not.toHaveProperty('messages');
   expect(settings.chats[0].thinking).toBe('xhigh');
   expect(settings.chats[0].providerThreadId).toBe('thr-aster-1');
+  expect(settings.chats[0]).toMatchObject({ corpusToolsEnabled: false, corpusToolsProvisioned: false });
+  expect(normalizeSettings({ chats: [{ id: 'tools', corpusToolsEnabled: true, corpusToolsProvisioned: true }] }).chats[0])
+    .toMatchObject({ corpusToolsEnabled: true, corpusToolsProvisioned: true });
   expect(normalizeSettings({ chats: [{ id: '../bad', messages: [] }] }).chats).toHaveLength(0);
 });
 

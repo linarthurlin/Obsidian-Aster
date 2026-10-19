@@ -160,6 +160,15 @@ export async function searchCorpus(root, query, limit = LIMITS.searchResults) {
   const ordered = hits.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
   return { query: query.trim(), scannedFiles: documents.length, scannedBytes, truncated: ordered.length > limit, results: ordered.slice(0, limit) };
 }
+export async function readCorpusNote(root, relativePath, maxChars = 24000) {
+  if (!visiblePath(relativePath) || !relativePath.endsWith('.md')) throw new Error('Choose a visible Markdown path inside the configured Corpus.');
+  if (!Number.isInteger(maxChars) || maxChars < 1 || maxChars > 24000) throw new Error('Note read limit must be between 1 and 24000 characters.');
+  root = await realpath(root);
+  if (!(await listNotes(root)).includes(relativePath)) throw new Error('Note is outside the configured Corpus.');
+  const text = await boundedRead(root, relativePath);
+  if (text.length > maxChars) throw new Error(`Note exceeds the ${maxChars}-character read limit; Aster does not truncate note content.`);
+  return { path: relativePath, content: text };
+}
 export async function prepareContext(root, query, targetPath) {
   if (typeof query !== 'string' || !query.trim() || query.length > 1000) throw new Error('Enter a query of 1–1000 characters.');
   if (!visiblePath(targetPath) || !targetPath.endsWith('.md')) throw new Error('Select an existing Markdown target.');

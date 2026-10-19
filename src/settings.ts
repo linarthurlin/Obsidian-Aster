@@ -25,6 +25,8 @@ export interface ChatThread {
   updatedAt: number;
   model: string;
   thinking: string;
+  corpusToolsEnabled?: boolean;
+  corpusToolsProvisioned?: boolean;
 }
 export interface Settings {
   corpusFolder: string;
@@ -81,6 +83,8 @@ function normalizeChats(raw: unknown): ChatThread[] {
       updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
       model: safeText(value.model, 120),
       thinking: EFFORTS.has(thinking) ? thinking : '',
+      corpusToolsEnabled: value.corpusToolsEnabled === true,
+      corpusToolsProvisioned: value.corpusToolsProvisioned === true,
     });
   }
   return chats;
