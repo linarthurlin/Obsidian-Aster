@@ -21,6 +21,8 @@
 
    目前 substring ranker 的整體 Recall@3/MRR/nDCG 為 0.80/0.76/0.77；lexical 為 0.82/0.82/0.83。實驗性 Intl.Segmenter + BM25 候選的整體為 0.93/0.87/0.87，lexical 為 1.00/0.94/0.95；hard-negative 的 Precision@3 同為 0.33、Recall@3 同為 1.00，MRR/nDCG 只有小幅變化，仍不足以支持替換產品 ranker。三個 paraphrase 中 substring 全漏、候選找回一個，另外兩個仍漏失。
 
+   額外凍結 20 篇合成筆記、36 個與 development query 字串及檔案路徑分離的 held-out 查詢（8 lexical、13 paraphrase、15 hard-negative），由維護者撰寫 closed-world relevance judgments。整體 substring Recall@3/MRR@5/nDCG@5 為 0.917/0.825/0.855，BM25 候選為 0.889/0.875/0.879；substring 的 paraphrase Recall@3 較高（0.846 對 0.692），BM25 hard-negative Recall@3 較高（1.000 對 0.933）。結果混合，沒有調參或替換產品 ranker。這只是合成內部 held-out check，不是獨立 assessor study 或個人 Vault 品質證據；詳見 [RETRIEVAL-HELDOUT.md](RETRIEVAL-HELDOUT.md)。
+
    Windows Node 22.16 合成語料量測：316 篇／508 KB 冷建索引約 436 ms、heap 增量約 1.1 MB、暖搜尋 p50/p95 約 0.73/2.02 ms；1,838 篇／18.99 MB 冷建約 2.05 秒、heap 增量約 38.8 MB、暖搜尋 p50/p95 約 10.8/38.9 ms，快取命中時不重讀筆記正文。near-limit 的 BM25 候選建置約 3.46 秒、序列化 token payload 約 21.84 MB，query p50/p95 約 0.80/1.29 ms，但建置成本和記憶體仍需在實際 Obsidian Windows runtime 驗證。所有資料均由評估器暫存產生，沒有讀取使用者 Vault；下一步擴大自然改寫與 hard-negative judgments，再驗證真實 runtime 記憶體及事件行為。Unicode 對中文 word boundary 的說明指出，可靠切詞需要語言專用處理；MiniSearch 的設計文件可作為 BM25／欄位長度排序參考，目前沒有引入第三方執行期相依：[Unicode UAX #29](https://www.unicode.org/reports/tr29/)、[Intl.Segmenter](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/Segmenter)、[MiniSearch design](https://github.com/lucaong/minisearch/blob/master/DESIGN_DOCUMENT.md)。
 5. **Research Desk 與 Vault Curator（四個唯讀候選檢查已實作）**：Workbench 可按需產生 Corpus 中繼資料報告，只查詢選定 Corpus 對應的 Obsidian `MetadataCache` link index；另以 Corpus 內 Markdown 相對路徑偵測 NFKC／大小寫正規化後的重複標題，只用 `TFile.stat.size` 標示零位元組筆記，並使用 Obsidian 已快取的 frontmatter alias 資料找重複 alias 與 alias／檔名交叉候選。每項最多檢查 2,000 個 Corpus Markdown 路徑；alias 檢查每篇最多 64 個 alias、總掃描字元最多 200,000，缺漏或超限就拒絕產生部分報告。整體不讀 note bodies、不呼叫模型、不寫入；未解析連結、沒有 Corpus 內入向連結、同名筆記、零位元組檔及重複 alias 都標示為候選，不宣稱必定損壞、孤立、歧義或應刪除，導覽前會重新驗證 scope。設計參考 Obsidian `MetadataCache.getFileCache()` 的唯讀中繼資料 API，以及 Community 的 Alias Management 對跨檔 alias／檔名重複清單的呈現；Aster 將其限制為按需 Corpus 報告，不即時監看或編輯 YAML。Obsidian Linter 繼續負責格式與 YAML lint，Aster 不重做。待實作：有明確資料來源／讀取預算的更多 deterministic rules、Research Desk 的 Markdown/PDF/Zotero annotation 引用，以及只分類或提出修復建議的 AI 流程。[Obsidian MetadataCache API](https://docs.obsidian.md/Reference/TypeScript%20API/MetadataCache/getFileCache)、[Alias Management](https://community.obsidian.md/plugins/alias-management)
 6. **選配整合**：Tasks、Linter、Bases/唯讀 Dataview、Canvas/Excalidraw；不重做成熟外掛的任務、格式、查詢、文獻或畫布引擎。
@@ -31,7 +33,8 @@
 - [ ] 真實 Obsidian Windows 載入、取消、多 chat、Projects、Skills、Quick Ask 與重新載入驗證（需使用 disposable Vault；目前未啟用 plugin）。
 - [x] Codex App Server dynamic tools live smoke：CLI 0.162.1、ephemeral thread、合成 Corpus 摘錄，真實 model-to-tool-call-to-result loop 完成；未讀取 Vault。
 - [x] 合成檢索評估與按需快取：自動測試有 12 個 lexical 和 3 個 paraphrase 合成案例；手動 eval runner 有 17 個 lexical、3 個 paraphrase、10 個 hard-negative 判斷，包含摘錄定位與冷／暖快取效能。
-- [ ] 建立與調參分離的 held-out 查詢集，加入更多自然改寫與 hard-negative 標註；在真實 Obsidian Windows runtime 驗證 cache event、實際記憶體與搜尋行為。現有 synthetic benchmark 不代表個人 Vault 品質。
+- [x] 建立與 development query 字串／Corpus 路徑分離的 held-out synthetic 集：20 篇筆記、36 題（8 lexical、13 paraphrase、15 hard-negative），以固定 qrels 對照 substring 與研究型 BM25，不從該集調參。
+- [ ] 在真實 Obsidian Windows runtime 驗證 cache event、實際記憶體與搜尋行為；現有 synthetic benchmark 不代表個人 Vault 品質。
 - [x] 跨重啟 transaction history UI 與 pending journal recovery CLI；synthetic plugin reload 與 hash-conflict gate 已測試。
 - [ ] Personal Glass Theme、Companion、default theme 與無障礙整合。
 - [ ] 新能力必須在合成 Vault 驗證；unit/DOM 測試不代表 runtime 完成。

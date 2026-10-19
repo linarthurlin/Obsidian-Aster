@@ -6,64 +6,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { LIMITS, invalidateCorpusSearchIndex, listNotes, searchCorpus } from '../workflow/corpus.mjs';
-
-const segmenter = new Intl.Segmenter('zh-TW', { granularity: 'word' });
-const stopWords = new Set('a an and are as at be does for from how in is it of on or the this through to with why'.split(' '));
+import { buildSegmentedBm25Index, searchSegmentedBm25, tokenizeTerms } from './retrieval-baselines.mjs';
+import { developmentQueries as queries } from './retrieval-development-set.mjs';
 const nearLimit = process.argv.includes('--near-limit');
-
-function terms(text) {
-  return [...segmenter.segment(text.normalize('NFKC').toLowerCase())]
-    .filter(part => part.isWordLike)
-    .map(part => part.segment)
-    .filter(term => !stopWords.has(term) && (term.length > 1 || /\p{Script=Han}/u.test(term)));
-}
-
-function termFrequencies(tokens) {
-  const frequencies = new Map();
-  for (const token of tokens) frequencies.set(token, (frequencies.get(token) || 0) + 1);
-  return frequencies;
-}
-
-async function buildSegmentedBm25Index(root) {
-  const started = performance.now();
-  const indexed = [];
-  for (const path of await listNotes(root)) {
-    const body = await readFile(join(root, path), 'utf8');
-    indexed.push({ path, title: path.split('/').pop().replace(/\.md$/i, ''), bodyTerms: terms(body), titleTerms: terms(path) });
-  }
-  const averageBodyLength = indexed.reduce((sum, doc) => sum + doc.bodyTerms.length, 0) / indexed.length;
-  const averageTitleLength = indexed.reduce((sum, doc) => sum + doc.titleTerms.length, 0) / indexed.length;
-  const documentFrequency = new Map();
-  for (const doc of indexed) for (const token of new Set([...doc.bodyTerms, ...doc.titleTerms]))
-    documentFrequency.set(token, (documentFrequency.get(token) || 0) + 1);
-  const indexBytes = Buffer.byteLength(JSON.stringify(indexed.map(doc => [doc.path, doc.titleTerms, doc.bodyTerms])));
-  return { documents: indexed.map(doc => ({ ...doc, bodyTf: termFrequencies(doc.bodyTerms), titleTf: termFrequencies(doc.titleTerms) })),
-    averageBodyLength, averageTitleLength, documentFrequency, indexBytes, buildMs: performance.now() - started };
-}
-
-function searchSegmentedBm25(index, query, limit = 5) {
-  const queryTerms = [...new Set(terms(query))];
-  const k1 = 1.2, b = 0.75;
-  const fieldScore = (frequency, length, averageLength) => frequency * (k1 + 1)
-    / (frequency + k1 * (1 - b + b * length / Math.max(1, averageLength)));
-  const hits = [];
-  for (const doc of index.documents) {
-    let score = 0, matched = 0;
-    for (const term of queryTerms) {
-      const bodyFrequency = doc.bodyTf.get(term) || 0;
-      const titleFrequency = doc.titleTf.get(term) || 0;
-      if (!bodyFrequency && !titleFrequency) continue;
-      matched++;
-      const df = index.documentFrequency.get(term) || 0;
-      const inverseDocumentFrequency = Math.log(1 + (index.documents.length - df + 0.5) / (df + 0.5));
-      score += inverseDocumentFrequency * (fieldScore(bodyFrequency, doc.bodyTerms.length, index.averageBodyLength)
-        + 2.5 * fieldScore(titleFrequency, doc.titleTerms.length, index.averageTitleLength));
-    }
-    if (queryTerms.length && matched / queryTerms.length < 0.2) continue;
-    if (score) hits.push({ path: doc.path, score });
-  }
-  return hits.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).slice(0, limit);
-}
 
 const canonicalNotes = {
   'Research/神經可塑性.md': '# 神經可塑性\n\n神經可塑性描述神經連結如何因學習與經驗改變。這篇說明大腦因學習改變連結，並討論新技能練習。\n',
@@ -83,39 +28,6 @@ const canonicalNotes = {
   'Reference/Citation examples.md': '# Citation examples\n\nCitation format examples demonstrate source path and quote styles, not the provenance history of a claim.\n',
   'Archive/Memory glossary.md': '# Memory glossary\n\nMemory retrieval, memory consolidation, and sleep are distinct topics in this index; definitions are intentionally omitted.\n',
 };
-
-const queries = [
-  { group: 'lexical', query: '神經可塑性', relevant: ['Research/神經可塑性.md'] },
-  { group: 'lexical', query: '大腦因學習改變連結', relevant: ['Research/神經可塑性.md'] },
-  { group: 'lexical', query: '大腦 學習 神經可塑性', relevant: ['Research/大腦學習.md', 'Research/神經可塑性.md'] },
-  { group: 'paraphrase', query: 'brain rewiring', relevant: ['Research/神經可塑性.md'] },
-  { group: 'lexical', query: '記憶鞏固', relevant: ['Research/Memory consolidation.md'] },
-  { group: 'lexical', query: 'memory consolidation', relevant: ['Research/Memory consolidation.md'] },
-  { group: 'lexical', query: '記憶在睡眠期間穩定', relevant: ['Research/Sleep and memory.md'] },
-  { group: 'lexical', query: 'spacing effect memory', relevant: ['Research/Memory retrieval.md'] },
-  { group: 'lexical', query: '間隔練習記憶', relevant: ['Research/Memory retrieval.md'] },
-  { group: 'lexical', query: 'AI 知識整理', relevant: ['Knowledge/AI 知識整理.md'] },
-  { group: 'lexical', query: 'AI knowledge workflow citations', relevant: ['AI/Knowledge Workflow.md', 'AI/Agent Workflow.md'] },
-  { group: 'lexical', query: '來源路徑 精確摘錄', relevant: ['Research/Source provenance.md'] },
-  { group: 'lexical', query: 'citation provenance source path', relevant: ['Research/Source provenance.md'] },
-  { group: 'lexical', query: '引用來源可追溯', relevant: ['Research/Source provenance.md'] },
-  { group: 'lexical', query: '會議決策 負責人 截止日期', relevant: ['Research/Meeting.md'] },
-  { group: 'lexical', query: 'meeting owner deadline', relevant: ['Research/Meeting.md', 'Archive/Meeting.md'] },
-  { group: 'lexical', query: 'archived deadline removed', relevant: ['Archive/Meeting.md'] },
-  { group: 'paraphrase', query: 'neurons talk to each other', relevant: ['Research/Neural circuits.md'] },
-  { group: 'lexical', query: 'neural circuits coordinate signals', relevant: ['Research/Neural circuits.md'] },
-  { group: 'paraphrase', query: 'how does the brain learn a new skill', relevant: ['Research/大腦學習.md', 'Research/神經可塑性.md'] },
-  { group: 'hard-negative', query: 'current meeting decisions owner deadline', relevant: ['Research/Meeting.md'] },
-  { group: 'hard-negative', query: 'meeting template owner deadline', relevant: ['Research/Meeting template.md'] },
-  { group: 'hard-negative', query: 'historical meeting owner deadline removed', relevant: ['Archive/Meeting.md'] },
-  { group: 'hard-negative', query: 'exact citation source path excerpt provenance', relevant: ['Research/Source provenance.md'] },
-  { group: 'hard-negative', query: 'citation format examples source quote style', relevant: ['Research/Citation formats.md'] },
-  { group: 'hard-negative', query: 'citation examples source path quote style', relevant: ['Reference/Citation examples.md'] },
-  { group: 'hard-negative', query: 'memory consolidation definition after learning', relevant: ['Research/Memory consolidation.md'] },
-  { group: 'hard-negative', query: 'memory retrieval spaced practice effect', relevant: ['Research/Memory retrieval.md'] },
-  { group: 'hard-negative', query: 'memory glossary retrieval consolidation sleep', relevant: ['Archive/Memory glossary.md'] },
-  { group: 'hard-negative', query: 'neuron electrical signal synaptic synchronization', relevant: ['Research/Neural circuits.md'] },
-];
 
 function quantile(values, proportion) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -170,7 +82,7 @@ try {
   }
 
   const casesToRun = nearLimit
-    ? ['記憶在睡眠期間穩定', 'AI knowledge workflow citations', 'brain rewiring'].map(value => queries.find(query => query.query === value))
+      ? ['記憶在睡眠期間穩定', 'AI knowledge workflow citations', 'brain rewiring'].map(value => queries.find(query => query.query === value))
     : queries;
   const measured = [];
   for (const query of casesToRun) {
@@ -210,8 +122,8 @@ try {
     warmMeasured.push({ query, hits: result.results, elapsedMs, scannedBytes: result.scannedBytes, indexedBytes: result.indexedBytes, cacheHit: result.cacheHit });
   }
 
-  const segmentedIndex = await buildSegmentedBm25Index(root);
-  const experimental = casesToRun.map(query => {
+  const segmentedIndex = await buildSegmentedBm25Index(await listNotes(root), path => readFile(join(root, path), 'utf8'));
+    const experimental = casesToRun.map(query => {
     const started = performance.now();
     const hits = searchSegmentedBm25(segmentedIndex, query.query);
     return { query, hits, elapsedMs: performance.now() - started };
@@ -227,7 +139,7 @@ try {
     dataset: 'synthetic only; hand-authored Traditional Chinese, English and mixed-language questions',
     mode: nearLimit ? 'near 20 MB Corpus budget' : 'small relevance set',
     corpus: { files: Object.keys(documents).length, bytes: corpusBytes, configuredSearchLimitBytes: LIMITS.searchBytes },
-    tokenizerExample: { query: '大腦因學習改變連結', terms: terms('大腦因學習改變連結') },
+    tokenizerExample: { query: '大腦因學習改變連結', terms: tokenizeTerms('大腦因學習改變連結') },
     quality: {
       currentSubstringBaseline: { overall: scoreGroup(measured), lexical: scoreGroup(lexical), paraphrase: scoreGroup(paraphrase), hardNegative: scoreGroup(hardNegative) },
       experimentalSegmentedBm25: { overall: scoreGroup(experimental), lexical: scoreGroup(experimentalLexical), paraphrase: scoreGroup(experimentalParaphrase), hardNegative: scoreGroup(experimentalHardNegative) },
