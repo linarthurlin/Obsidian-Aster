@@ -43,6 +43,22 @@ it('extracts only selected pages with PDF page labels and closes the host worker
   expect(pdf.destroyed.value).toBe(1);
 });
 
+it('reports progress only for explicitly selected pages', async () => {
+  const pdf = fakePdf([
+    async () => ({ items: [{ str: 'Page one.' }] }),
+    async () => ({ items: [{ str: 'Page two.' }] }),
+    async () => ({ items: [{ str: 'Page three.' }] }),
+  ]);
+  const progress = [];
+  const result = await extractPdfPages(pdf.api, new Uint8Array([1]), '2-3', undefined, undefined, update => progress.push(update));
+  expect(result.pages.map(page => page.pageNumber)).toEqual([2, 3]);
+  expect(progress).toEqual([
+    { currentPage: 2, completedPages: 0, totalPages: 2 },
+    { currentPage: 3, completedPages: 1, totalPages: 2 },
+  ]);
+  expect(pdf.requested).toEqual([2, 3]);
+});
+
 it('rejects oversized, unsupported and image-only inputs with bounded diagnostics', async () => {
   await expect(extractPdfPages({}, new Uint8Array([1]))).rejects.toThrow('unavailable');
   await expect(extractPdfPages({ getDocument() {} }, new Uint8Array(RESEARCH_PDF_LIMITS.bytesPerFile + 1))).rejects.toThrow('12,000,000');

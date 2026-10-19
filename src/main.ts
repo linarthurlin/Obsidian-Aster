@@ -412,7 +412,11 @@ class Workbench extends ItemView {
             pdfjs ||= await loadPdfJs();
             if (controller.signal.aborted) throw new Error('Research preview was cancelled.');
             const remainingPdfPages = RESEARCH_LIMITS.pdfPagesTotal - selectedPdfPages;
-            const extracted = await extractPdfPages(pdfjs, bytes, researchPdfPageRanges.get(path) || '', controller.signal, remainingPdfPages);
+            const extracted = await extractPdfPages(pdfjs, bytes, researchPdfPageRanges.get(path) || '', controller.signal, remainingPdfPages, progress => {
+              if (this.closed || controller.signal.aborted) return;
+              const announce = progress.completedPages === 0 || (progress.completedPages + 1) % 10 === 0 || progress.completedPages === progress.totalPages - 1;
+              if (announce) researchStatus.setText(`Extracting PDF page ${progress.currentPage} (${progress.completedPages + 1}/${progress.totalPages} selected). Cancel research preview to stop.`);
+            });
             selectedPdfPages += extracted.selectedPageCount;
             if (selectedPdfPages > RESEARCH_LIMITS.pdfPagesTotal) throw new Error('Research PDF sources exceed the 240-page total extraction budget. Narrow the selected page ranges.');
             inputs.push({ path, format: 'pdf', content: extracted.pages.map(page => page.text).join('\n\n'), sourceHash, pages: extracted.pages, ...metadata });

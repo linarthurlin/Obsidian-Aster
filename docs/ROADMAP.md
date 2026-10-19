@@ -36,13 +36,15 @@
 
 - [x] Disposable Windows runtime smoke（2026-10-18；Obsidian 1.14.4 / Aster 0.2.1）：只在 `.local/aster-runtime-vault-20261018` 與隔離 app/profile 啟用 Aster。確認外掛與 commands 載入、Codex `model/list` 顯示 7 個模型和 thinking options、6 個 chat metadata records 在 app reload 後保留、Project 指示快照、Skill slash 展開、Quick Ask 可編輯草稿，以及 final reload 沒有 renderer exception／console.error。未送出任何 model turn；原安裝目錄的 Obsidian.exe 保持 1.13.7，1.14.4 package 由隔離 `.local` update cache 載入。
 - [x] Real host PDF.js smoke：明確選取 `.local` disposable Corpus 內生成的 625-byte 一頁 PDF，Obsidian 1.14.4 抽出 synthetic marker 並保留 `PDF p. 1` locator；Research Desk 建立含來源 digest 的 editable unsent Chat draft，沒有送出。
-- [ ] 真實 PDF extraction cancellation、多頁範圍邊界及掃描／無文字 PDF fallback。
+- [x] Obsidian 1.14.4 host PDF.js 多頁範圍與無文字 fallback：合成四頁 PDF 明確選取 2–3，只留下 p.2/p.3 markers 和 locators、排除 p.1；空白 p.4 顯示需 OCR/Zotero 的 no-selectable-text 訊息。
+- [x] 真實 host PDF cancellation：100 頁合成 PDF 完成 PDF.js document load 後，Research Desk 首頁進度提示觸發 Cancel；狀態回報 `PDF preview was cancelled.`，沒有 evidence preview 或可建立的 Chat draft。確定性測試另覆蓋 `getTextContent()` pending 時 abort。
+- [ ] 真實掃描／image-only PDF OCR fallback、頁面文字解析途中取消，以及每 PDF 120 頁／每 source set 240 頁實際上限。
 - [x] Codex App Server dynamic tools live smoke：CLI 0.162.1、ephemeral thread、合成 Corpus 摘錄，真實 model-to-tool-call-to-result loop 完成；未讀取 Vault。
 - [x] 合成檢索評估與按需快取：自動測試有 12 個 lexical 和 3 個 paraphrase 合成案例；手動 eval runner 有 17 個 lexical、3 個 paraphrase、10 個 hard-negative 判斷，包含摘錄定位與冷／暖快取效能。
 - [x] 建立與 development query 字串／Corpus 路徑分離的 held-out synthetic 集：20 篇筆記、36 題（8 lexical、13 paraphrase、15 hard-negative），以固定 qrels 對照 substring 與研究型 BM25，不從該集調參。
 - [ ] 在真實 Obsidian Windows runtime 驗證 cache event、實際記憶體與搜尋行為；現有 synthetic benchmark 不代表個人 Vault 品質。
 - [x] 跨重啟 transaction history UI 與 pending journal recovery CLI；synthetic plugin reload 與 hash-conflict gate 已測試。
 - [ ] Halo Theme、Orbit、default theme 與無障礙整合。
-- [ ] 新能力必須在合成 Vault 驗證；unit/DOM 測試不代表 runtime 完成。
+驗證原則：每項新能力都要先在合成 Vault 驗證；unit／DOM tests 不代表 runtime 完成。
 
 不讀取個人 Vault、不自動寫入或啟用 plugin。Release 前執行 npm run check 與 npm run package。

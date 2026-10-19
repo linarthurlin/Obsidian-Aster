@@ -56,7 +56,7 @@ function awaitWithAbort(value, signal) {
   });
 }
 
-export async function extractPdfPages(pdfjs, bytes, pageRange = '', signal, maxSelectedPages = RESEARCH_PDF_LIMITS.pagesPerFile) {
+export async function extractPdfPages(pdfjs, bytes, pageRange = '', signal, maxSelectedPages = RESEARCH_PDF_LIMITS.pagesPerFile, onProgress) {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || bytes.byteLength > RESEARCH_PDF_LIMITS.bytesPerFile)
     throw new Error('Each selected PDF must be between 1 byte and 12,000,000 bytes.');
   if (!pdfjs || typeof pdfjs.getDocument !== 'function') throw new Error('Obsidian PDF.js is unavailable in this app version.');
@@ -94,7 +94,10 @@ export async function extractPdfPages(pdfjs, bytes, pageRange = '', signal, maxS
     }
     const pages = [];
     let extractedChars = 0;
-    for (const pageNumber of selectedPages) {
+    for (let index = 0; index < selectedPages.length; index++) {
+      const pageNumber = selectedPages[index];
+      if (signal?.aborted) throw new Error('PDF preview was cancelled.');
+      try { onProgress?.({ currentPage: pageNumber, completedPages: index, totalPages: selectedPages.length }); } catch { /* Progress reporting must not compromise extraction. */ }
       if (signal?.aborted) throw new Error('PDF preview was cancelled.');
       const page = await awaitWithAbort(pdf.getPage(pageNumber), signal);
       const content = await awaitWithAbort(page.getTextContent(), signal);
