@@ -46,7 +46,7 @@
 - [x] 建立與 development query 字串／Corpus 路徑分離的 held-out synthetic 集：20 篇筆記、36 題（8 lexical、13 paraphrase、15 hard-negative），以固定 qrels 對照 substring 與研究型 BM25，不從該集調參。
 - [x] Disposable runtime Corpus cache/search：12 篇合成筆記、929 KB indexed bytes；cold search 建索引，warm search 回報 0 KB note text reread。新建 10 篇筆記使既有 cache 重建並包含新檔，`Vault.modify` 後舊 marker 0 筆、新 marker 命中。
 - [x] Renderer heap sample（CDP `HeapProfiler.collectGarbage` + `Performance.getMetrics`）：929 KB Corpus index 前後 JS heap 13,807,784 → 15,743,396 bytes（+1,935,612）；warm reuse 後 15,743,436（+40）。這是整個 Obsidian renderer 的合成樣本，不是 Aster 單獨 heap 歸因。
-- [ ] 真實 runtime 的 2,000-note／20 MB limit 與較大 Corpus heap 邊界；合成資料不代表個人 Vault 的檢索品質。
+- [x] 真實 runtime 的 Corpus hard cap：2,000 篇、精確 20,000,000 bytes 可冷建索引並暖重用；19,532 KB indexed bytes，暖搜尋重讀 0 KB。多 1 byte 明確回報 20 MB 預算超限，第 2,001 篇明確回報檔案數超限。冷建索引後整個 renderer `JSHeapUsedSize` 增加 40,719,724 bytes；暖搜尋後再增 13,096 bytes。這包含 Obsidian/UI，不代表 Aster-only 記憶體，也不衡量個人 Vault 的檢索品質。
 - [x] 跨重啟 transaction history UI 與 pending journal recovery CLI；synthetic plugin reload 與 hash-conflict gate 已測試。
 - [ ] Halo Theme、Orbit、default theme 與無障礙整合。
 驗證原則：每項新能力都要先在合成 Vault 驗證；unit／DOM tests 不代表 runtime 完成。
