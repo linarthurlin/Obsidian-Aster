@@ -28,6 +28,8 @@ export interface ChatThread {
   corpusToolsEnabled?: boolean;
   corpusToolsProvisioned?: boolean;
   researchEvidenceIds?: string[];
+  researchEvidenceDigests?: Array<{ id: string; digest: string }>;
+  researchReview?: boolean;
 }
 export interface Settings {
   corpusFolder: string;
@@ -76,6 +78,17 @@ function normalizeChats(raw: unknown): ChatThread[] {
     const researchEvidenceIds = Array.isArray(value.researchEvidenceIds)
       ? [...new Set(value.researchEvidenceIds.filter((id): id is string => typeof id === 'string' && /^S\d+-E\d+$/.test(id)))].slice(0, 120)
       : [];
+    const selectedEvidence = new Set(researchEvidenceIds), digestIds = new Set<string>();
+    const researchEvidenceDigests = Array.isArray(value.researchEvidenceDigests)
+      ? value.researchEvidenceDigests.slice(0, 120).flatMap(entry => {
+        if (!entry || typeof entry !== 'object') return [];
+        const digest = entry as Record<string, unknown>;
+        if (typeof digest.id !== 'string' || !selectedEvidence.has(digest.id) || digestIds.has(digest.id)
+          || typeof digest.digest !== 'string' || !/^[a-f0-9]{64}$/.test(digest.digest)) return [];
+        digestIds.add(digest.id);
+        return [{ id: digest.id, digest: digest.digest }];
+      })
+      : [];
     chats.push({
       id,
       ...(providerThreadId && /^[a-zA-Z0-9_-]{1,200}$/.test(providerThreadId) ? { providerThreadId } : {}),
@@ -90,6 +103,8 @@ function normalizeChats(raw: unknown): ChatThread[] {
       corpusToolsEnabled: value.corpusToolsEnabled === true,
       corpusToolsProvisioned: value.corpusToolsProvisioned === true,
       ...(researchEvidenceIds.length ? { researchEvidenceIds } : {}),
+      ...(researchEvidenceDigests.length ? { researchEvidenceDigests } : {}),
+      ...(value.researchReview === true ? { researchReview: true } : {}),
     });
   }
   return chats;

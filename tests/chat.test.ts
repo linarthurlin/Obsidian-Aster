@@ -46,6 +46,12 @@ it('normalizes persisted chats with bounded message content and model-specific e
     .toMatchObject({ corpusToolsEnabled: true, corpusToolsProvisioned: true });
   expect(normalizeSettings({ chats: [{ id: 'research', researchEvidenceIds: ['S1-E1', 'bad', 'S1-E1', 'S2-E3'] }] }).chats[0])
     .toMatchObject({ researchEvidenceIds: ['S1-E1', 'S2-E3'] });
+  expect(normalizeSettings({ chats: [{ id: 'research', researchEvidenceIds: ['S1-E1', 'S2-E3'], researchEvidenceDigests: [
+    { id: 'S1-E1', digest: 'a'.repeat(64) }, { id: 'S9-E9', digest: 'b'.repeat(64) }, { id: 'S2-E3', digest: 'invalid' },
+    { id: 'S1-E1', digest: 'c'.repeat(64) },
+  ], researchReview: true }] }).chats[0]).toMatchObject({
+    researchEvidenceDigests: [{ id: 'S1-E1', digest: 'a'.repeat(64) }], researchReview: true,
+  });
   expect(normalizeSettings({ chats: [{ id: '../bad', messages: [] }] }).chats).toHaveLength(0);
 });
 

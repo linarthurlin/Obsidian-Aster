@@ -10,7 +10,7 @@ import { listNotes, visiblePath, resolveScope, prepareContext, prepareBatchConte
 import { runCodex, runBatchCodex } from '../workflow/codex.mjs';
 import { apply, hash, listTransactionJournals, readTransactionReview, recoverTransactionJournal, rollbackTransactionJournal, review as reviewPlan, safePath } from '../workflow/knowledge.mjs';
 import { renderProposalReviewCard, type ProposalReviewCard } from './proposal-review';
-import { RESEARCH_LIMITS, assertResearchSourcesFresh, buildResearchBibliography, buildResearchDraft, buildResearchSourceSet, listResearchFiles, researchEvidenceIds } from '../workflow/research.mjs';
+import { RESEARCH_LIMITS, assertResearchSourcesFresh, buildResearchBibliography, buildResearchDraft, buildResearchSourceSet, listResearchFiles, researchEvidenceIds, researchEvidenceDigests } from '../workflow/research.mjs';
 import { extractPdfPages } from '../workflow/research-pdf.mjs';
 const VIEW = 'knowledge-agent-workbench';
 class CorpusFolderPicker extends FuzzySuggestModal<TFolder> {
@@ -456,7 +456,7 @@ class Workbench extends ItemView {
         await this.plugin.openChat();
         const leaf = this.app.workspace.getLeavesOfType(ASTER_CHAT_VIEW)[0];
         if (!(leaf?.view instanceof ChatView)) throw new Error('Aster Chat is not available.');
-        await leaf.view.startResearchDraft(selectedDraft, selectedSet.question, researchEvidenceIds(selectedSet));
+        await leaf.view.startResearchDraft(selectedDraft, selectedSet.question, researchEvidenceIds(selectedSet), researchEvidenceDigests(selectedSet));
         researchStatus.setText('An independent Chat contains the editable, unsent Research draft. Review it and press Send only when ready.');
       } catch (error) {
         researchStatus.setText(error instanceof Error ? error.message : 'Could not prepare the Research Chat draft.');

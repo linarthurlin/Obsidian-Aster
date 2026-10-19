@@ -7,6 +7,7 @@ import { mkdir, mkdtemp, readFile, rm, rmdir, unlink, writeFile } from 'node:fs/
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { runInNewContext } from 'node:vm';
+import { buildResearchDraft, buildResearchSourceSet, researchEvidenceDigests, researchEvidenceIds } from '../workflow/research.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -519,18 +520,30 @@ it('streams and resumes local Chat, and waits for a blocked transcript save befo
     expect(plugin.settings.chats[0]).toMatchObject({ projectName: 'Research', projectInstructions: 'Prefer cited comparisons.' });
     expect(fake.children.filter(child => child.args[0] === 'app-server')).toHaveLength(appServerCount);
 
-    const researchText = 'ASTER_RESEARCH_SOURCE_SET_V1\n\nResearch question: "Why do traces stabilize?"\n\nEVIDENCE [S1-E1]\n> Synthetic evidence.';
+    const researchSet = buildResearchSourceSet('Why do traces stabilize?', [{ path: 'Paper.md', content: '# Evidence\n\nSynthetic evidence.' }]);
+    const researchText = buildResearchDraft(researchSet), researchIds = researchEvidenceIds(researchSet), researchDigests = researchEvidenceDigests(researchSet);
     const chatsBeforeResearch = plugin.settings.chats.length;
-    await view.startResearchDraft(researchText, 'Why do traces stabilize?', ['S1-E1']);
+    await view.startResearchDraft(researchText, 'Why do traces stabilize?', researchIds, researchDigests);
     const researchThread = plugin.settings.chats[0];
     expect(plugin.settings.chats).toHaveLength(chatsBeforeResearch + 1);
-    expect(researchThread).toMatchObject({ title: 'Research · Why do traces stabilize?', researchEvidenceIds: ['S1-E1'] });
+    expect(researchThread).toMatchObject({ title: 'Research · Why do traces stabilize?', researchEvidenceIds: ['S1-E1'], researchEvidenceDigests: researchDigests });
     expect((doc.querySelector('[aria-label="Message Aster"]') as HTMLTextAreaElement).value).toBe(researchText);
     expect(doc.querySelector('.pga-chat-status')?.textContent).toContain('has not sent it');
     expect(fake.children.filter(child => child.args[0] === 'app-server')).toHaveLength(appServerCount);
-    view.histories.set(researchThread.id, [{ id: 'audit-message', role: 'assistant', content: 'Claim [S1-E1] and unsupported [S9-E9].', createdAt: Date.now() }]);
+    view.histories.set(researchThread.id, [
+      { id: 'research-user', role: 'user', content: researchText, createdAt: Date.now() },
+      { id: 'audit-message', role: 'assistant', content: 'Claim [S1-E1] and unsupported [S9-E9].\n\n> Synthetic evidence. [S1-E1]', createdAt: Date.now() },
+    ]);
     await view.render();
     expect(doc.querySelector('.pga-chat-citation-audit')?.textContent).toContain('unselected IDs: [S9-E9]');
+    expect(doc.querySelector('.pga-chat-citation-audit')?.textContent).toContain('Exact quote check: 1/1');
+    const reviewButton = Array.from(doc.querySelectorAll('button')).find(button => button.textContent === 'Prepare claim review') as HTMLButtonElement;
+    await reviewButton.onclick?.(new dom.window.Event('click'));
+    expect(plugin.settings.chats[0]).toMatchObject({ title: 'Evidence review · Why do traces stabilize?', researchEvidenceIds: ['S1-E1'], researchReview: true });
+    expect((doc.querySelector('[aria-label="Message Aster"]') as HTMLTextAreaElement).value).toContain('ASTER_RESEARCH_REVIEW_V1');
+    expect((doc.querySelector('[aria-label="Message Aster"]') as HTMLTextAreaElement).value).toContain('Claim [S1-E1] and unsupported [S9-E9].');
+    expect(doc.querySelector('.pga-chat-status')?.textContent).toContain('review the prompt and send it yourself');
+    expect(fake.children.filter(child => child.args[0] === 'app-server')).toHaveLength(appServerCount);
     await expect(view.startResearchDraft(researchText, 'Question', ['bad-id'])).rejects.toThrow('evidence ID list is invalid');
   } finally {
     releaseBlockedRename?.();
