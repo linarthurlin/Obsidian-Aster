@@ -39,7 +39,8 @@
 - [x] Obsidian 1.14.4 host PDF.js 多頁範圍與無文字 fallback：合成四頁 PDF 明確選取 2–3，只留下 p.2/p.3 markers 和 locators、排除 p.1；空白 p.4 顯示需 OCR/Zotero 的 no-selectable-text 訊息。
 - [x] 真實 host PDF cancellation：100 頁合成 PDF 完成 PDF.js document load 後，Research Desk 首頁進度提示觸發 Cancel；狀態回報 `PDF preview was cancelled.`，沒有 evidence preview 或可建立的 Chat draft。確定性測試另覆蓋 `getTextContent()` pending 時 abort。
 - [x] 真實 host PDF 頁數邊界：41 個有文字頁面產生 41 個 evidence blocks；121 頁 PDF 明確要求 1–121 時在文字擷取前拒絕，1–120 可成功預覽；兩個各選 120 頁的 PDF 成功完成 240-page source set；加入第 241 頁時在擷取前拒絕且沒有部分 evidence preview。
-- [ ] 真實掃描／image-only PDF OCR fallback 與頁面文字解析途中取消；空白頁 no-text fallback 和 pending `getTextContent()` cancellation 已分別由 host runtime 與確定性測試覆蓋。
+- [x] 真實 image-only PDF fallback：一頁 raster image、沒有文字層的合成 PDF 經 Obsidian 1.14.4 host PDF.js 後回報需 OCR/Zotero annotations，且沒有 evidence preview。Aster 不內建 OCR，需由外部 OCR 或 Zotero annotation note 提供文字。
+- [ ] Obsidian host `getTextContent()` pending 時取消；deterministic test 覆蓋 abort contract，真實 parser pending 尚未實測。
 - [x] Codex App Server dynamic tools live smoke：CLI 0.162.1、ephemeral thread、合成 Corpus 摘錄，真實 model-to-tool-call-to-result loop 完成；未讀取 Vault。
 - [x] Obsidian 1.14.4／Aster 0.2.1 dynamic tools runtime：新 chat 明確啟用唯讀 Corpus tools；prompt 僅提供 marker，實際要求 `aster_search_corpus` 後以搜尋路徑呼叫 `aster_read_corpus_note`。第二篇合成筆記把隨機 payload 放在 4,000 字元 filler 後，未放入 prompt；模型透過 read tool 正確回傳 payload 與路徑，證明 search excerpt 無法單獨提供答案。只傳送合成內容，沒有 write tool。
 - [x] 合成檢索評估與按需快取：自動測試有 12 個 lexical 和 3 個 paraphrase 合成案例；手動 eval runner 有 17 個 lexical、3 個 paraphrase、10 個 hard-negative 判斷，包含摘錄定位與冷／暖快取效能。
