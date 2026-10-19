@@ -111,7 +111,7 @@ async function preflight(root, plan, rollback = false) {
   return paths;
 }
 async function atomicWrite(path, text) {
-  const temp = join(dirname(path), `.personal-glass-${randomUUID()}.tmp`);
+  const temp = join(dirname(path), `.aster-transaction-${randomUUID()}.tmp`);
   const mode = (await stat(path)).mode;
   try { await writeFile(temp, text, { flag: 'wx', mode }); await rename(temp, path); }
   finally { try { await unlink(temp); } catch (error) { if (error.code !== 'ENOENT') throw error; } }

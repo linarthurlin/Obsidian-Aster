@@ -3,7 +3,7 @@
 ## 已完成（v0.2.1 基線）
 
 - [x] 獨立 repository、manifest、build、installer、CI 與 release pipeline。
-- [x] 保留 Git ancestry 與 Theme/Companion 整合契約。
+- [x] 保留 Git ancestry 與 Halo Theme/Orbit 整合契約。
 - [x] 離線來源／提案／review／apply／rollback 工具。
 - [x] 明確 folder scope、檔案數與內容預算、本機詞彙檢索。
 - [x] Codex CLI provider，沿用現有登入，不儲存外掛 API key。
@@ -36,7 +36,7 @@
 - [x] 建立與 development query 字串／Corpus 路徑分離的 held-out synthetic 集：20 篇筆記、36 題（8 lexical、13 paraphrase、15 hard-negative），以固定 qrels 對照 substring 與研究型 BM25，不從該集調參。
 - [ ] 在真實 Obsidian Windows runtime 驗證 cache event、實際記憶體與搜尋行為；現有 synthetic benchmark 不代表個人 Vault 品質。
 - [x] 跨重啟 transaction history UI 與 pending journal recovery CLI；synthetic plugin reload 與 hash-conflict gate 已測試。
-- [ ] Personal Glass Theme、Companion、default theme 與無障礙整合。
+- [ ] Halo Theme、Orbit、default theme 與無障礙整合。
 - [ ] 新能力必須在合成 Vault 驗證；unit/DOM 測試不代表 runtime 完成。
 
 不讀取個人 Vault、不自動寫入或啟用 plugin。Release 前執行 npm run check 與 npm run package。

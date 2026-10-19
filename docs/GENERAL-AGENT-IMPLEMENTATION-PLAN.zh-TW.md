@@ -1,6 +1,6 @@
 # Aster 通用 AI Agent Plugin — Implementation Plan
 
-> 研究修訂版：2026-10-18。產品名稱已定為 Aster；本文件更新規劃與品牌，不代表後續功能已實作。Theme、Companion、Aster 維持三個獨立 repo 與獨立發布。
+> 研究修訂版：2026-10-18。產品名稱已定為 Aster；本文件更新規劃與品牌，不代表後續功能已實作。Halo Theme、Orbit、Aster 維持三個獨立 repo 與獨立發布。
 
 ## 產品定位與關鍵取捨
 
@@ -95,7 +95,7 @@ ANKS 沒有公認且唯一的公開定義；此計畫沿用先前討論的工作
 - 送出前顯示 provider、model、thinking、Project/Skill、附件範圍、外傳內容與目的地；回答附引用 path/heading/locator。
 - slash menu 支援 Skills、命令和小型工作流程；Skill 不授予權限，讀寫由 Tool Router 控制。
 - 選取文字可 Quick Ask；支援續談、複製或建立待審核 patch，不直接替換原文。
-- Theme token 是漸進外觀適配；缺少 Personal Glass 時 fallback 到 Obsidian 原生 CSS variables。
+- Halo token 是漸進外觀適配；缺少 Halo Theme 時 fallback 到 Obsidian 原生 CSS variables。
 
 ## 架構與安全設計
 
@@ -159,7 +159,7 @@ Research Desk 支援明確選定的 Markdown/PDF/Zotero annotation，保留 cita
 - Recovery：pending journal、部分失敗、人工修改阻止套用／rollback、逐筆核准。
 - Retrieval eval：繁中、英文、中英混合、改寫、同名檔、長筆記、相似干擾項；引用可回到原檔和 heading/page。
 - Integrations：選配外掛缺席時安全降級；Tasks/Zotero/Linter/Dataview/Excalidraw 按各自 API 測，不讀 private data.json。
-- Runtime：disposable synthetic vault 的 Windows Obsidian 實測、取消、重新載入、多 chat、原生／Personal Glass theme 共存、鍵盤和 reduced motion。
+- Runtime：disposable synthetic vault 的 Windows Obsidian 實測、取消、重新載入、多 chat、原生／Halo Theme 共存、鍵盤和 reduced motion。
 - Release：Windows/Linux CI、typecheck/build/test/validate/package；package 不含私人 note、token、context/proposal/receipt、transcript 或 CLI config。
 
 Desktop-only 是本機 Codex CLI 的合理首發限制；其他平台要說明 provider 不支援，不偷偷切換雲端 API。
@@ -168,7 +168,7 @@ Desktop-only 是本機 Codex CLI 的合理首發限制；其他平台要說明 p
 
 GitHub repository 與 local workspace 使用 Obsidian-Aster；外掛顯示名稱為 Aster；npm package 與 release artifact 使用 Aster。manifest/plugin ID 和安裝資料夾保留 knowledge-agent，避免 Obsidian 將現有安裝當作另一個外掛並造成重複安裝或設定遺失。若未來需要新 ID，另立遷移設計並測試資料／路徑相容。既有 .knowledge-agent transaction journal 路徑也保留，不移動、不刪除。
 
-Theme 與 Companion repo 不隨本次更名；Aster 繼續遵循 integration contract，並能獨立運作。
+Halo Theme 與 Orbit repo 各自獨立；Aster 繼續遵循 integration contract，並能獨立運作。
 
 ## 參考資料
 
